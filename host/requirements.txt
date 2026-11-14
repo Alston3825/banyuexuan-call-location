@@ -1,0 +1,8 @@
+fastapi==0.128.8
+uvicorn==0.34.0
+pydantic==2.13.5
+paho-mqtt>=2.1,<3
+httpx>=0.27
+boto3>=1.34,<2
+cryptography>=42
+faster-whisper>=1.0,<2      # 留言转文字(本机离线识别)

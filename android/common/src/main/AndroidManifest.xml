@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 在线更新:从主机下载新 APK 后交给系统安装器(首次需在系统里允许"安装未知应用") -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <application>
+        <receiver android:name="cn.banyuexuan.call.common.InstallResultReceiver" android:exported="false"/>
+    </application>
+</manifest>

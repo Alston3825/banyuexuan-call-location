@@ -1,0 +1,27 @@
+{
+  "store_id": "gx",
+  "rooms": {
+    "1601": {"floor": "16", "tablet": "tab-1601"},
+    "1602": {"floor": "16", "tablet": "tab-1602"}
+  },
+  "beacons": {
+    "bcn-1601": {"area": "1601 房内", "room": "1601"},
+    "bcn-1602": {"area": "1602 房内", "room": "1602"},
+    "bcn-c16": {"area": "16 层走廊", "room": null},
+    "bcn-st16": {"area": "护士站", "room": null}
+  },
+  "staff": {
+    "n01": {"name": "演示护理师甲", "watch": "w-01"},
+    "n02": {"name": "演示护理师乙", "watch": "w-02"},
+    "n03": {"name": "演示护理师丙", "watch": "w-03"},
+    "n04": {"name": "演示组长", "watch": "w-04"}
+  },
+  "groups": {"g16": ["n01", "n02", "n03"]},
+  "assignments": {
+    "1601": {"day": "n01", "night": "n02"},
+    "1602": {"day": "n01", "night": "n02"}
+  },
+  "leaders": {"g16": "n04"},
+  "roles": {"nurse": "护理师", "cleaner": "保洁"},
+  "request_types": {"BABY_CRY": "宝宝哭闹", "NEED_NURSE": "呼叫护理师", "MILK_STORAGE": "取储存母乳", "CLEANING": "打扫卫生", "TRAY": "收餐盘", "EMERGENCY": "紧急"}
+}
