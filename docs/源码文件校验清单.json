@@ -43,6 +43,7 @@
   "host/bycall/main.py": "4a4dc019d9bb213942e994b80abe99eab0c0d7663b2f12f5700c85d198e0cccc",
   "host/bycall/core/dispatcher.py": "6ea625b855add718f54c5a1147e9c0cc8cf71989ab8fc91f32debf50a318ed36",
   "host/bycall/core/hoststatus.py": "6f8b6eb98fe89d495ba6b8c8e2f2d0f1602e5c1e6807fab217decd4dc61cbecd",
+  "host/bycall/core/watchops.py": "c5b1fe8a856c0b132fd92c10c678d7219566a94596283e609e49a470c4c1e1bf",
   "host/bycall/core/service.py": "b7621b1a754514730ecc01db460c7941c627b76a81b3bcf252aec1154c5be4e0",
   "host/bycall/core/backup.py": "4c80dbf4ca1fef5f141a476373a02d286b1183c34b2d9e35d3d1dac1ef73a667",
   "host/bycall/core/guest_buttons.py": "42f2e4cd137d1d700915fd19b3772df3c19f9073a487b5c9aa8891e38acdd148",
