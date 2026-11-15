@@ -6,3 +6,5 @@ httpx>=0.27
 boto3>=1.34,<2
 cryptography>=42
 faster-whisper>=1.0,<2      # 留言转文字(本机离线识别)
+
+av>=14,<17             # 腕表短语音上传时实际解码校验时长

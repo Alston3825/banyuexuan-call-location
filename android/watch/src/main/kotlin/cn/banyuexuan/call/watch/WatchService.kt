@@ -224,7 +224,7 @@ class WatchService : Service() {
             stopAudio(); WatchState.alerts.clear(); WatchState.messages.clear(); WatchState.helps.clear()
             WatchState.where = "—"; WatchState.helpStatus = ""; window.drain()
             cacheDir.listFiles()?.forEach { it.deleteRecursively() }
-            if (!restore) stored.edit().clear().commit()
+            if (!restore && !stored.edit().clear().commit()) { WatchState.update { WatchState.notice = "本地清空失败，请联系管理员" }; return }
             if (restore) try {
                 val rows = JSONArray(stored.getString("messages", "[]"))
                 for (i in 0 until rows.length()) rows.getJSONObject(i).let { WatchState.messages[it.optString("message_id")] = it }
@@ -256,10 +256,10 @@ class WatchService : Service() {
     fun playVoice(voiceUrl: String, colleague: Boolean = false) {
         val binding = WatchState.context?.optJSONObject("binding")?.optString("bind_id")
         Thread {
-            val f = File(cacheDir, "v-" + voiceUrl.substringAfterLast('/'))
-            if (f.exists() || Http.download(cfg.apiBase, cfg.apiKey, voiceUrl, f)) main.post {
+            val f = File(cacheDir, "v-$binding-" + voiceUrl.substringAfterLast('/'))
+            if (f.exists() || Http.download(cfg.apiBase, "", "/watch-device/${cfg.deviceId}" + voiceUrl, f, binding)) main.post {
                 if (binding != WatchState.context?.optJSONObject("binding")?.optString("bind_id") ||
-                    (colleague && WatchState.alerts.values.any { it.status != "completed" })) return@post
+                    (colleague && WatchState.alerts.values.any { it.status != "completed" })) { f.delete(); return@post }
                 player?.release()
                 player = MediaPlayer().apply { setDataSource(f.path); setOnCompletionListener { it.release(); player = null }; prepare(); start() }
             } else WatchState.update { WatchState.notice = "留言下载失败" }

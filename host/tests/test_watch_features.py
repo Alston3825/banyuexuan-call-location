@@ -189,3 +189,50 @@ class TestTeam(TestBinding):
         self.command('w-01', 'WATCH_RECEIVED', dict(delivery_id=d['payload']['delivery_id']))
         self.clock.advance(4); self.svc.tick()
         self.assertEqual(len(self.bus.sent(f'{S}/dispatch/w-01', 'CALL_DISPATCH')), 2)
+
+    def test_scoped_history_token_revoked_on_swap(self):
+        client = TestClient(create_app(self.svc, VoiceStore(os.path.join(self.tmp.name, 'voice-scoped')), api_key='admin'))
+        old = self.svc.watches.context('n01')['binding']['bind_id']
+        headers = {'x-watch-binding': old}
+        self.assertEqual(client.get('/watch-device/w-01/history', headers=headers).status_code, 200)
+        self.change()
+        self.assertEqual(client.get('/watch-device/w-01/history', headers=headers).status_code, 401)
+        self.assertEqual(client.get('/watch-device/spare/history', headers=headers).status_code, 401)
+        new = self.svc.watches.context('n01')['binding']['bind_id']
+        self.assertEqual(client.get('/watch-device/spare/history', headers={'x-watch-binding':new}).status_code, 200)
+
+    def test_voice_duration_verified_by_host_and_read_access_scoped(self):
+        import io
+        import wave
+        voice = VoiceStore(os.path.join(self.tmp.name, 'voice-scoped'))
+        client = TestClient(create_app(self.svc, voice, api_key='admin'))
+        headers = {'x-watch-binding':self.svc.watches.context('n01')['binding']['bind_id']}
+        def wav(seconds):
+            out = io.BytesIO()
+            with wave.open(out, 'wb') as w:
+                w.setparams((1,2,8000,0,'NONE','not compressed'))
+                w.writeframes(b'\x00\x00' * (8000 * seconds))
+            return out.getvalue()
+        response = client.post('/watch-device/w-01/voice?ext=wav', content=wav(1), headers=headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        url = response.json()['voice_url']
+        self.assertEqual(client.post('/watch-device/w-01/voice?ext=wav', content=wav(31), headers=headers).status_code, 422)
+        self.assertEqual(client.get('/watch-device/w-01'+url, headers=headers).status_code, 200)
+        other = {'x-watch-binding':self.svc.watches.context('n02')['binding']['bind_id']}
+        self.assertEqual(client.get('/watch-device/w-02'+url, headers=other).status_code, 403)
+        self.svc.team.message('n01', 'clip', dict(channel='direct', target='n02', voice_url=url, seconds=1))
+        self.assertEqual(client.get('/watch-device/w-02'+url, headers=other).status_code, 200)
+
+    def test_faulted_watch_not_borrowable_until_reset(self):
+        self.svc.watches.mark_fault('spare', '模拟故障', 'admin')
+        with self.assertRaises(WatchError):
+            self.change()
+        self.svc.watches.reset('spare', 'admin')
+        self.ack_reset('spare')
+        self.change()
+
+    def test_battery_samples_and_metrics_record_staff(self):
+        self.send(f'{S}/heartbeat/w-01', 'w-01', 'HEARTBEAT', dict(battery=80, wifi_rssi=-55, battery_sample=True))
+        with self.svc.core._db() as db:
+            row = db.execute('SELECT * FROM battery_samples').fetchone()
+            self.assertEqual((row['staff'], row['watch'], row['battery']), ('n01', 'w-01', 80))

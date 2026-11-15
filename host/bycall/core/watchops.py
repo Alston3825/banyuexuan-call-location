@@ -4,6 +4,8 @@ import json
 from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 
+from .dispatcher import shift_of
+
 
 class WatchError(ValueError):
     pass
@@ -30,6 +32,7 @@ class WatchOps:
             CREATE TABLE IF NOT EXISTS watch_current(
               store TEXT, staff TEXT, sn TEXT, original TEXT, bind_id TEXT, version INTEGER,
               PRIMARY KEY(store,staff));
+            CREATE UNIQUE INDEX IF NOT EXISTS watch_one_device ON watch_current(store,sn) WHERE sn IS NOT NULL;
             CREATE TABLE IF NOT EXISTS watch_operations(
               seq INTEGER PRIMARY KEY AUTOINCREMENT, store TEXT, request_id TEXT, digest TEXT,
               staff TEXT, from_sn TEXT, to_sn TEXT, action TEXT, operator TEXT, source TEXT,
@@ -66,9 +69,9 @@ class WatchOps:
             return [dict(r) for r in db.execute(f'SELECT * FROM {table} WHERE store=? ORDER BY rowid DESC LIMIT ?', (self.cfg.store_id, limit))]
 
     def context(self, staff):
-        if staff not in self.cfg.staff:
+        if not isinstance(staff, str) or staff not in self.cfg.staff:
             raise WatchError('员工不存在')
-        shift, day = __import__('bycall.core.dispatcher', fromlist=['shift_of']).shift_of(self.svc._now())
+        shift, day = shift_of(self.svc._now())
         info = self.cfg.staff[staff]
         rooms = [r for r, v in self.cfg.assignments.items() if v.get(shift) == staff]
         if not rooms:
@@ -98,7 +101,7 @@ class WatchOps:
 
     @serialized
     def change(self, *, staff, target=None, action='SWAP', expected_version, request_id, operator, source='NURSE_STATION', fault=False):
-        if action not in ('SWAP', 'ROLLBACK', 'RELEASE', 'UNDO') or not request_id or not operator:
+        if action not in ('SWAP', 'ROLLBACK', 'RELEASE', 'UNDO') or not isinstance(request_id, str) or not 1 <= len(request_id) <= 128 or not operator or (target is not None and not isinstance(target, str)):
             raise WatchError('操作参数无效')
         digest = hashlib.sha256(json.dumps([staff, target, action, expected_version, operator, source, fault]).encode()).hexdigest()
         context = self.context(staff)
@@ -118,9 +121,12 @@ class WatchOps:
                         raise WatchError('没有可回绑的原表')
                     target = origin
                     if action == 'UNDO':
-                        last = db.execute('SELECT at FROM watch_operations WHERE store=? AND staff=? ORDER BY seq DESC LIMIT 1', (self.cfg.store_id, staff)).fetchone()
+                        last = db.execute('SELECT * FROM watch_operations WHERE store=? AND staff=? ORDER BY seq DESC LIMIT 1', (self.cfg.store_id, staff)).fetchone()
                         if not last or datetime.fromisoformat(last['at']).astimezone(timezone(timedelta(hours=8))).date() != self.svc._now().astimezone(timezone(timedelta(hours=8))).date():
                             raise WatchError('只能撤销当日操作')
+                        if last['action'] != 'SWAP' or last['to_sn'] != b['sn']:
+                            raise WatchError('只能撤销最近一次换表')
+                        target = last['from_sn']
                 if action != 'RELEASE':
                     if not self.cfg.staff[staff].get('on_duty', True):
                         raise WatchError('员工当前不在班')
@@ -144,7 +150,12 @@ class WatchOps:
                     target, origin = None, None
                 else:
                     db.execute("UPDATE watch_inventory SET staff=?,state='BORROWED',reset_id=NULL WHERE store=? AND sn=?", (staff, self.cfg.store_id, target))
-                    origin = (origin or b['sn']) if action == 'SWAP' else None
+                    if action == 'SWAP':
+                        origin = origin or b['sn']
+                    elif action == 'UNDO':
+                        origin = None if target == origin else origin
+                    else:
+                        origin = None
                 bid = uuid4().hex
                 db.execute('UPDATE watch_current SET sn=?,original=?,bind_id=?,version=version+1 WHERE store=? AND staff=?', (target, origin, bid, self.cfg.store_id, staff))
                 detail = json.dumps(dict(bind_id=bid, previous_version=b['version'], context=context), ensure_ascii=False)

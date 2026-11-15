@@ -11,6 +11,7 @@ class Team:
         self.svc, self.core, self.cfg = svc, svc.core, svc.cfg
         with self.core._db() as db:
             db.executescript('''
+            CREATE TABLE IF NOT EXISTS watch_voice(store TEXT, url TEXT, staff TEXT, sn TEXT, binding TEXT, seconds REAL, PRIMARY KEY(store,url));
             CREATE TABLE IF NOT EXISTS team_help(id TEXT PRIMARY KEY, store TEXT, sender TEXT,
               source_id TEXT, at TEXT, room TEXT, state TEXT, owner TEXT, stage INTEGER DEFAULT 0,
               UNIQUE(store,sender,source_id));
@@ -133,6 +134,10 @@ class Team:
         if voice:
             if text or not isinstance(voice, str) or not voice.startswith('/voice/') or '/' in voice[len('/voice/'):] or not isinstance(seconds, (int, float)) or not 0 < seconds <= p['voice_max_seconds']:
                 raise WatchError('语音参数无效或超时')
+            with self.core._db() as db:
+                clip = db.execute('SELECT seconds FROM watch_voice WHERE store=? AND staff=? AND url=?', (self.cfg.store_id, sender, voice)).fetchone()
+            if not clip or clip['seconds'] > p['voice_max_seconds']:
+                raise WatchError('语音未通过本店上传校验或不属于本人')
         elif text not in p['quick_replies']:
             raise WatchError('请选择主机配置的快捷回复')
         roles = self.cfg.staff[sender].get('roles', []) + [self.cfg.role_of(sender)]

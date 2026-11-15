@@ -270,6 +270,9 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
                 'ORDER BY c.rowid DESC LIMIT ?', (store, staff, cutoff, min(limit, 500)))]
             return history_items(db, rows)
 
+    from .watch_device import install as install_watch_device
+    install_watch_device(app, svc, voice, staff_history)
+
     @app.get('/watches/{watch}/history', dependencies=[Depends(auth)])
     def watch_history(watch: str, days: int = 30, limit: int = 100):
         """手表"我的记录":这块手表的护理师接过的呼叫(最近 days 天,最新在前),含时间线、留言、转文字。"""

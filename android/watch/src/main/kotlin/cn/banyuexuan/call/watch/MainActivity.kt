@@ -96,7 +96,14 @@ class MainActivity : Activity() {
         setOnClickListener {                                     // 先让按钮闪一下、显示 ✓,再执行操作(操作会刷新界面)
             isEnabled = false; PressFx.confirm(this, "✓ $t", 600); postDelayed({ f() }, 220); postDelayed({ isEnabled = true }, 1500) } }
 
+    private var renderedBinding: String? = null
+    private var teamDialog: AlertDialog? = null
     private fun render() {
+        val activeBinding = WatchState.context?.optJSONObject("binding")?.optString("bind_id")
+        if (renderedBinding != activeBinding) {
+            renderedBinding = activeBinding; hist = HistView.NONE; histItems = null; histSel = null
+            teamDialog?.dismiss(); teamDialog = null
+        }
         box.removeAllViews()
         syncBack()
         if (hist != HistView.NONE) { renderHistory(); return }
@@ -174,6 +181,7 @@ class MainActivity : Activity() {
     }
 
     private fun showTeam() {
+        val dialogBinding = WatchState.context?.optJSONObject("binding")?.optString("bind_id")
         Thread {
             val cfg = WatchService.config(this)
             // 通讯录经由本表专属 MQTT 主题返回，不传入员工身份。
@@ -202,7 +210,7 @@ class MainActivity : Activity() {
             try { rec.stop() } catch (_: Exception) { ok = false }; rec.release(); record.text = "按住说话"
             if (send && ok && f != null && seconds > 0.3) {
                 val b = body().put("seconds", seconds.coerceAtMost(WatchState.policy.optDouble("voice_max_seconds", 30.0)))
-                Thread { val cfg = WatchService.config(this); val u = cn.banyuexuan.call.common.Http.upload(cfg.apiBase, cfg.apiKey, f.readBytes(), "m4a"); f.delete()
+                Thread { val cfg = WatchService.config(this); val u = cn.banyuexuan.call.common.Http.upload(cfg.apiBase, cfg.apiKey, f.readBytes(), "m4a", cfg.deviceId, dialogBinding); f.delete()
                     if (u != null) WatchService.instance?.watchCommand("TEAM_SEND", b.put("voice_url", u)) else WatchState.update { WatchState.notice = "语音上传失败" }
                 }.start()
             } else f?.delete()
@@ -227,9 +235,10 @@ class MainActivity : Activity() {
         }
         val dialog = AlertDialog.Builder(this).setTitle("同事沟通").setView(ScrollView(this).apply { addView(col) }).setNegativeButton("返回", null).create()
         dialog.setOnDismissListener { finish(false) }
-        val interrupt: () -> Unit = { if (WatchState.alerts.isNotEmpty()) { finish(false); dialog.dismiss() } }
+        val interrupt: () -> Unit = { if (WatchState.alerts.isNotEmpty() || dialogBinding != WatchState.context?.optJSONObject("binding")?.optString("bind_id")) { finish(false); dialog.dismiss() } }
         dialog.setOnShowListener { WatchState.listen(interrupt) }
         dialog.setOnDismissListener { finish(false); WatchState.unlisten(interrupt) }
+        teamDialog = dialog
         dialog.show()
     }
 
@@ -243,11 +252,12 @@ class MainActivity : Activity() {
     private fun openHistory() { hist = HistView.LIST; histItems = null; histMsg = "加载中…"; render(); loadHistory() }
 
     private fun loadHistory() {
+        val binding = WatchState.context?.optJSONObject("binding")?.optString("bind_id")
         val cfg = WatchService.config(this)
         Thread {
-            val t = cn.banyuexuan.call.common.Http.getText(cfg.apiBase, cfg.apiKey, "/watches/${cfg.deviceId}/history?days=30&limit=100")
+            val t = cn.banyuexuan.call.common.Http.getText(cfg.apiBase, "", "/watch-device/${cfg.deviceId}/history?days=30&limit=100", binding)
             runOnUiThread {
-                if (hist == HistView.NONE) return@runOnUiThread
+                if (hist == HistView.NONE || binding != WatchState.context?.optJSONObject("binding")?.optString("bind_id")) return@runOnUiThread
                 try { histItems = t?.let { org.json.JSONArray(it) }; histMsg = if (t == null) "加载失败,请检查网络后重试" else "" }
                 catch (_: Exception) { histItems = null; histMsg = "加载失败" }
                 render()

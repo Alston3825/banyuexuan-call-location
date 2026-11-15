@@ -39,6 +39,14 @@ class StoreConfig:
                 raise ValueError('invalid watch policy: ' + key)
         if defaults['borrow_battery'] > 100 or defaults['scan_window_seconds'] > defaults['scan_interval_seconds'] or defaults['help_leader_seconds'] < defaults['help_floor_seconds']:
             raise ValueError('invalid watch policy range')
+        if not -127 <= defaults['min_wifi_rssi'] <= 0:
+            raise ValueError('invalid WiFi signal threshold')
+        watch_ids = list(self.watches) + [v.get('watch') for v in self.staff.values() if v.get('watch')]
+        if any(not isinstance(sn, str) or any(c in sn for c in '/+#\n\r') for sn in watch_ids):
+            raise ValueError('invalid watch SN for MQTT topic')
+        assigned = [v['watch'] for v in self.staff.values() if v.get('watch')]
+        if len(assigned) != len(set(assigned)):
+            raise ValueError('watch assigned to multiple staff')
         self.watch_policy = defaults
 
     @classmethod

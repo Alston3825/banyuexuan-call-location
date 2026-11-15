@@ -44,6 +44,7 @@ def main():
         from .integration.writeback import CallWriteback
         client = MgmtClient(mgmt_url, os.environ['MGMT_API_KEY'])
         sync = MasterSync(client, os.path.join(data, 'host.db'), cfg, svc.roster)
+        sync.state_lock = svc.lock
         sync.apply()                  # 先用上次缓存的主数据,管理系统不通也能启动
         wb = CallWriteback(client, svc.core, cfg)
     svc.watches.seed()

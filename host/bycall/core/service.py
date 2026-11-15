@@ -283,6 +283,8 @@ class HostService:
         s = self.cfg.staff_of_watch(env.device_id)
         if s and env.payload.get('binding_id') and env.payload['binding_id'] != self.watches.context(s)['binding']['bind_id']:
             s = None
+        if s and not self.cfg.staff[s].get('on_duty', True):
+            s = None
         if not s:
             self._reject(env, 'unknown_device')
         return s

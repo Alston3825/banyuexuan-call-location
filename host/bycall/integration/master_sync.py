@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from contextlib import closing
+from contextlib import closing, nullcontext
 
 KINDS = {  # kind -> (endpoint, key field)
     'stores': ('stores', 'store_id'),
@@ -63,6 +63,11 @@ class MasterSync:
         return [json.loads(r[0]) for r in db.execute('SELECT data FROM master WHERE kind=?', (kind,))]
 
     def apply(self):
+        # 网络拉取不占用呼叫锁；只在发布本地主数据快照时序列化。
+        with getattr(self, 'state_lock', nullcontext()):
+            return self._apply()
+
+    def _apply(self):
         """Rebuild cfg/roster in place from stored master data."""
         cfg, roster = self.cfg, self.roster
         with closing(sqlite3.connect(self.path)) as db:
@@ -87,7 +92,8 @@ class MasterSync:
             on_duty = s.get('duty_status') == 'ON_DUTY'
             cfg.staff[s['staff_id']] = dict(name=s.get('name'), watch=s['watch_id'], roles=s.get('roles') or [],
                                             floors=s.get('responsible_floors') or [], on_duty=on_duty,
-                                            employee_no=s.get('employee_no'))
+                                            employee_no=s.get('employee_no'), schedule_id=s.get('schedule_id'),
+                                            department=s.get('department'), role=s.get('role', 'nurse'))
             if not on_duty:
                 continue                       # only on-duty staff are ever dispatched
             for fl in cfg.staff[s['staff_id']]['floors']:
