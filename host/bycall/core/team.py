@@ -22,6 +22,8 @@ class Team:
             CREATE TABLE IF NOT EXISTS watch_receipts(id INTEGER PRIMARY KEY AUTOINCREMENT,
               delivery_id TEXT, watch TEXT, at TEXT, latency_ms INTEGER);
             ''')
+            if 'station_sent' not in [r[1] for r in db.execute('PRAGMA table_info(team_help)')]:
+                db.execute('ALTER TABLE team_help ADD COLUMN station_sent INTEGER DEFAULT 0')
 
     def roster(self, sender):
         group = self.svc.roster.group_of(sender)
@@ -81,7 +83,7 @@ class Team:
             db.execute("UPDATE watch_delivery SET received=? WHERE store=? AND ref=? AND kind='HELP_ALERT' AND received IS NULL", (self.svc._now().isoformat(), self.cfg.store_id, hid))
             people = [r[0] for r in db.execute('SELECT staff FROM watch_delivery WHERE store=? AND ref=?', (self.cfg.store_id, hid))] + [h['sender'], staff]
         for s in set(people):
-            self.enqueue(s, 'HELP_STATE', hid + ':' + action, dict(help_id=hid, status='claimed' if action == 'claim' else action, by=self.cfg.name(staff)))
+            self.enqueue(s, 'HELP_STATE', hid + ':' + action, dict(help_id=hid, status='claimed' if action == 'claim' else action, by=self.cfg.name(staff), owner=staff, sender=h['sender']))
 
     def tick_help(self):
         p = self.cfg.watch_policy
@@ -96,7 +98,8 @@ class Team:
             if stage == 0:
                 candidates = [s for s in candidates if self.svc.roster.group_of(s) == group]
                 locs = {l['staff']: l['room'] for l in self.svc.tele.latest_locations()}
-                candidates.sort(key=lambda s: (locs.get(s) != h['room'], s))
+                distances = p.get('room_distances', {}).get(h['room'], {})
+                candidates.sort(key=lambda s: (0 if locs.get(s) == h['room'] and h['room'] else distances.get(locs.get(s), 1000000), s))
                 candidates = candidates[:1]
             elif stage == 1:
                 candidates = [s for s in candidates if self.svc.roster.group_of(s) == group or (floor is not None and floor in self.cfg.staff[s].get('floors', []))]
@@ -105,9 +108,11 @@ class Team:
                 candidates = [lead] if lead and self.svc._online(lead) else []
             for s in candidates:
                 self.enqueue(s, 'HELP_ALERT', h['id'], dict(help_id=h['id'], sender=h['sender'], name=self.cfg.name(h['sender']), room=h['room'], stage=stage))
-            if stage >= 2 or not candidates:
+            if (stage >= 2 or not candidates) and (h['stage'] != stage or not h.get('station_sent')):
                 from . import protocol as P
                 self.svc.bus.publish(P.t_dispatch_station(self.cfg.store_id), self.svc._msg('HELP_ALERT', dict(help_id=h['id'], name=self.cfg.name(h['sender']), room=h['room'], stage=stage)))
+                with self.core._db() as db:
+                    db.execute('UPDATE team_help SET station_sent=1 WHERE id=?', (h['id'],))
             if stage > h['stage']:
                 self.enqueue(h['sender'], 'HELP_STATE', h['id'] + ':stage:' + str(stage), dict(help_id=h['id'], status='escalated', stage=stage))
                 with self.core._db() as db:
@@ -115,7 +120,9 @@ class Team:
 
     def busy(self, staff):
         with self.core._db() as db:
-            return bool(db.execute("SELECT 1 FROM calls c LEFT JOIN notifications n ON c.id=n.call_id WHERE c.store=? AND c.state IN ('pending','claimed','arrived') AND (c.owner=? OR n.target=?) LIMIT 1", (self.cfg.store_id, staff, staff)).fetchone())
+            customer = bool(db.execute("SELECT 1 FROM calls c LEFT JOIN notifications n ON c.id=n.call_id WHERE c.store=? AND c.state IN ('pending','claimed','arrived') AND (c.owner=? OR n.target=?) LIMIT 1", (self.cfg.store_id, staff, staff)).fetchone())
+            helping = db.execute("SELECT 1 FROM team_help WHERE store=? AND owner=? AND state='claimed' LIMIT 1", (self.cfg.store_id, staff)).fetchone()
+            return customer or bool(helping)
 
     def message(self, sender, source, body):
         p = self.cfg.watch_policy
@@ -175,11 +182,17 @@ class Team:
                 continue
             if d['kind'] == 'CALL_DISPATCH':
                 c = self.core.get(d['ref'], store=self.cfg.store_id)
-                if c['state'] not in ('pending', 'claimed', 'arrived') or (c['owner'] and c['owner'] != d['staff']):
+                if c['state'] not in ('pending', 'claimed', 'arrived') or (c['owner'] and c['owner'] != d['staff'] and c['proposed_owner'] != d['staff']):
                     with self.core._db() as db:
                         db.execute('UPDATE watch_delivery SET received=? WHERE id=?', (self.svc._now().isoformat(), d['id']))
                     continue
+            if d['kind'] == 'CALL_DISPATCH' and d['attempts'] == 3:
+                if c['state'] == 'pending':
+                    self.svc.roster.set_status(d['staff'], 'offline')
+                self.svc._send_dispatch(d['ref'], 'station', 'no_device_receipt')
             payload = json.loads(d['payload'])
+            if d['kind'] == 'CALL_DISPATCH':
+                payload['status'] = {'claimed': 'accepted'}.get(c['state'], c['state'])
             payload['delivery_id'] = d['id']
             payload['binding_id'] = self.svc.watches.context(d['staff'])['binding']['bind_id']
             self.svc.bus.publish(P.t_dispatch_watch(self.cfg.store_id, self.cfg.watch_of(d['staff'])), self.svc._msg(d['kind'], payload, d['ref'] if d['kind'] == 'CALL_DISPATCH' else None))

@@ -55,6 +55,16 @@ def install(app, svc):
         except WatchError as e:
             raise HTTPException(409, str(e))
 
+    @app.post('/watch-admin/fault')
+    async def fault(request: Request, x_watch_admin_key: str = Header(default='')):
+        who = operator(x_watch_admin_key)
+        b = await request.json()
+        try:
+            svc.watches.mark_fault(b.get('sn'), b.get('note'), who)
+            return dict(ok=True)
+        except WatchError as e:
+            raise HTTPException(409, str(e))
+
     @app.post('/watch-admin/reset')
     async def reset(request: Request, x_watch_admin_key: str = Header(default='')):
         who = operator(x_watch_admin_key)

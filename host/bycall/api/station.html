@@ -63,8 +63,9 @@ section h2 b{color:var(--text);font-size:22px}
 <body>
 <div id="hostwarn" style="display:none;background:#b26a00;color:#fff;text-align:center;padding:6px;font-weight:600"></div>
 <div id="err">与主机失去连接,画面可能不是最新的</div>
+<div id="helpwarn" role="status" style="display:none;background:#813800;color:white;padding:10px"></div>
 <header>
-  <h1>护士站 · <span id="store">—</span></h1>
+  <button onclick="window.open('/watch-admin', '_blank', 'noopener')">护士站换表</button><h1>护士站 · <span id="store">—</span></h1>
   <span class="pill" id="cnt">—</span>
   <span class="sp"></span>
   <span class="pill" id="hostinfo" title="主机最近一次数据库备份时间与磁盘剩余空间"></span>
@@ -237,6 +238,9 @@ function tick() {
   $('err').style.display = (Date.now() - lastOk > 8000 && lastOk) ? 'block' : 'none';
 }
 function render(s) {
+  const helps = s.helps || [];
+  $('helpwarn').style.display = helps.length ? 'block' : 'none';
+  $('helpwarn').textContent = helps.map(h => '同事求助：' + h.name + ' · ' + (h.room || '位置未知') + ' · ' + (h.owner_name ? h.owner_name + '已响应' : h.stage >= 2 ? '无人响应，请护士长处理' : '等待响应')).join('；');
   snap = s;
   $('store').textContent = s.store_id;
   const hw = $('hostwarn'), hp = (s.host && s.host.problems) || [];

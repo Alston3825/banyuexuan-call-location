@@ -120,23 +120,24 @@ class WatchService : Service() {
     }
 
     private fun onMessage(m: JSONObject) {
+        if (Looper.myLooper() != Looper.getMainLooper()) { main.post { onMessage(m) }; return }
         val p = m.optJSONObject("payload") ?: JSONObject()
         val id = m.optString("call_id")
         if (m.optString("store_id") != cfg.store) return
         if (m.optString("type") == "WATCH_CONTEXT") {
-            main.post { applyContext(p) }; return
+            applyContext(p); return
         }
         if (p.has("binding_id") && p.optString("binding_id") != WatchState.context?.optJSONObject("binding")?.optString("bind_id")) return
         if (p.has("delivery_id")) {
             if (m.optString("type") == "TEAM_MESSAGE" && WatchState.alerts.values.any { it.status != "completed" }) return
-            watchCommand("WATCH_RECEIVED", JSONObject().put("delivery_id", p.optString("delivery_id")))
+            if (m.optString("type") != "TEAM_MESSAGE") watchCommand("WATCH_RECEIVED", JSONObject().put("delivery_id", p.optString("delivery_id")))
         }
         when (m.optString("type")) {
             Proto.CALL_DISPATCH -> {
                 stopAudio()
                 fun str(k: String): String? = if (p.isNull(k)) null else p.optString(k).ifBlank { null }   // JSON null must not become "null"
                 val a = Alert(id, str("room_no") ?: "", str("label") ?: str("service_code") ?: "",
-                    str("voice_url"), str("text"), p.optString("priority") == "emergency", str("reason") ?: "")
+                    str("voice_url"), str("text"), p.optString("priority") == "emergency", str("reason") ?: "", p.optString("status", "pending"))
                 WatchState.update {
                     val fresh = !WatchState.alerts.containsKey(id)
                     if (fresh) WatchState.alerts[id] = a
@@ -161,7 +162,9 @@ class WatchService : Service() {
             "HELP_STATE" -> WatchState.update {
                 val hid = p.optString("help_id")
                 val status = p.optString("status")
-                if (status == "claimed" || status == "complete" || status == "cancel") WatchState.helps.remove(hid)
+                if (status == "claimed" && p.optString("owner") == WatchState.context?.optString("staff_id")) {
+                    WatchState.helps[hid] = p.put("status", "claimed")
+                } else if (status == "claimed" || status == "complete" || status == "cancel") WatchState.helps.remove(hid)
                 WatchState.helpStatus = when (status) {
                     "sent" -> "求助已发出"
                     "claimed" -> "${p.optString("by")}已响应"
@@ -174,8 +177,12 @@ class WatchService : Service() {
                 if (!WatchState.messages.containsKey(mid)) {
                     WatchState.messages[mid] = p
                     while (WatchState.messages.size > 100) WatchState.messages.remove(WatchState.messages.keys.first())
+                    getSharedPreferences("watch_employee", MODE_PRIVATE).edit()
+                        .putString("binding_id", WatchState.context?.optJSONObject("binding")?.optString("bind_id"))
+                        .putString("messages", JSONArray(WatchState.messages.values.toList()).toString()).commit()
                     pulse(longArrayOf(0, 120))
                 }
+                watchCommand("WATCH_RECEIVED", JSONObject().put("delivery_id", p.optString("delivery_id")))
             }
             "TEAM_SENT" -> WatchState.update { WatchState.notice = "消息已存入主机，等待送达" }
             Proto.CMD_REJECTED -> WatchState.update {
@@ -196,7 +203,7 @@ class WatchService : Service() {
     private fun stopAudio() { main.post { player?.release(); player = null } }
 
     fun watchCommand(type: String, payload: JSONObject = JSONObject()) {
-        if (bus?.publish("${cfg.store}/watch/${cfg.deviceId}", Proto.envelope(cfg.store, cfg.deviceId, type, payload)) != true)
+        if (bus?.publish("${cfg.store}/watch/${cfg.deviceId}", Proto.envelope(cfg.store, cfg.deviceId, type, payload.put("binding_id", WatchState.context?.optJSONObject("binding")?.optString("bind_id")))) != true)
             WatchState.update { WatchState.notice = "网络未连接，请恢复后重试" }
     }
 
@@ -210,16 +217,29 @@ class WatchService : Service() {
         val next = p.optJSONObject("context")
         val previous = WatchState.context?.optJSONObject("binding")?.optString("bind_id")
         val changed = previous != next?.optJSONObject("binding")?.optString("bind_id")
+        val stored = getSharedPreferences("watch_employee", MODE_PRIVATE)
+        val restore = next != null && stored.getString("binding_id", null) == next.optJSONObject("binding")?.optString("bind_id")
         if (next == null || changed) {
+            WatchState.alerts.keys.forEach { getSystemService(NotificationManager::class.java).cancel(it.hashCode()) }
             stopAudio(); WatchState.alerts.clear(); WatchState.messages.clear(); WatchState.helps.clear()
             WatchState.where = "—"; WatchState.helpStatus = ""; window.drain()
             cacheDir.listFiles()?.forEach { it.deleteRecursively() }
-            getSystemService(NotificationManager::class.java).cancelAll()
+            if (!restore) stored.edit().clear().commit()
+            if (restore) try {
+                val rows = JSONArray(stored.getString("messages", "[]"))
+                for (i in 0 until rows.length()) rows.getJSONObject(i).let { WatchState.messages[it.optString("message_id")] = it }
+            } catch (_: Exception) { stored.edit().clear().commit() }
         }
         // 员工数据只保存在内存；设备 MQTT/API 凭据属于硬件，不随员工迁移或擦除。
         WatchState.directory = p.optJSONArray("directory") ?: JSONArray()
         WatchState.roles = p.optJSONObject("roles") ?: JSONObject()
         WatchState.rollbackVersion = if (p.isNull("rollback_version")) null else p.optInt("rollback_version")
+        val active = p.optJSONArray("active_help") ?: JSONArray()
+        for (i in 0 until active.length()) {
+            val h = active.getJSONObject(i)
+            if (h.optString("owner") == next?.optString("staff_id")) WatchState.helps[h.optString("id")] = h.put("help_id", h.optString("id")).put("status", "claimed")
+            if (h.optString("sender") == next?.optString("staff_id")) WatchState.helpStatus = if (h.optString("state") == "claimed") "已有同事响应" else "求助已发出"
+        }
         WatchState.context = next; WatchState.bound = next != null
         WatchState.policy = p.optJSONObject("policy") ?: JSONObject()
         if (p.optString("state") == "RESETTING") {
@@ -230,7 +250,7 @@ class WatchService : Service() {
 
     // ---- commands from the UI --------------------------------------
     fun command(type: String, callId: String, payload: JSONObject = JSONObject()) {
-        bus?.publish(Proto.tAck(cfg.store, callId), Proto.envelope(cfg.store, cfg.deviceId, type, payload, callId))
+        bus?.publish(Proto.tAck(cfg.store, callId), Proto.envelope(cfg.store, cfg.deviceId, type, payload.put("binding_id", WatchState.context?.optJSONObject("binding")?.optString("bind_id")), callId))
     }
 
     fun playVoice(voiceUrl: String, colleague: Boolean = false) {

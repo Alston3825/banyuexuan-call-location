@@ -197,7 +197,12 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
                       battery=dev.get(v.get('tablet'), {}).get('battery'),
                       last_seen=dev.get(v.get('tablet'), {}).get('last_seen'))
                  for r, v in cfg.rooms.items()]
-        return dict(store_id=cfg.store_id, now=svc._now().isoformat(), active=active, recent=done[:recent],
+        with svc.core._db() as db:
+            helps = [dict(r) for r in db.execute("SELECT * FROM team_help WHERE store=? AND state IN ('pending','claimed') ORDER BY at", (store,))]
+        for h in helps:
+            h['name'] = cfg.name(h['sender'])
+            h['owner_name'] = cfg.name(h['owner']) if h['owner'] else None
+        return dict(helps=helps, store_id=cfg.store_id, now=svc._now().isoformat(), active=active, recent=done[:recent],
                     nurses=nurses, rooms=rooms,
                     host=host_status.snapshot() if host_status else None, version=VERSION)
 

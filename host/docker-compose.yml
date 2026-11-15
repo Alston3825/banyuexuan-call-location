@@ -41,6 +41,7 @@ services:
       MQTT_PASSWORD: ${MQTT_PASSWORD:-}
       # 默认是虚构的 2 房演示数据;正式使用:把门店配置放到 ./config/store.json,并设 BYCALL_CONFIG=/config/store.json
       BYCALL_CONFIG: ${BYCALL_CONFIG:-/app/bycall/custom/banyuexuan/demo_pilot.json}
+      BYCALL_WATCH_ADMINS: ${BYCALL_WATCH_ADMINS:-{}}
       BYCALL_API_KEY: ${BYCALL_API_KEY:-dev-key}
       # 对接管理系统时填写(不填则用本地演示配置)
       MGMT_URL: ${MGMT_URL:-}

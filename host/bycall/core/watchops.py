@@ -9,6 +9,15 @@ class WatchError(ValueError):
     pass
 
 
+def serialized(fn):
+    from functools import wraps
+    @wraps(fn)
+    def wrapped(self, *args, **kwargs):
+        with self.svc.lock:
+            return fn(self, *args, **kwargs)
+    return wrapped
+
+
 class WatchOps:
     def __init__(self, svc):
         self.svc, self.cfg, self.core = svc, svc.cfg, svc.core
@@ -28,6 +37,7 @@ class WatchOps:
             ''')
         self.seed()
 
+    @serialized
     def seed(self):
         with self.core._transaction() as db:
             for sn in self.cfg.watches:
@@ -86,11 +96,12 @@ class WatchOps:
     def signal_ok(self, d):
         return d.get('wifi_rssi') is not None and d['wifi_rssi'] >= self.cfg.watch_policy['min_wifi_rssi']
 
+    @serialized
     def change(self, *, staff, target=None, action='SWAP', expected_version, request_id, operator, source='NURSE_STATION', fault=False):
         if action not in ('SWAP', 'ROLLBACK', 'RELEASE', 'UNDO') or not request_id or not operator:
             raise WatchError('操作参数无效')
         digest = hashlib.sha256(json.dumps([staff, target, action, expected_version, operator, source, fault]).encode()).hexdigest()
-        self.context(staff)
+        context = self.context(staff)
         with self.core._transaction() as db:
             old = db.execute('SELECT * FROM watch_operations WHERE store=? AND request_id=?', (self.cfg.store_id, request_id)).fetchone()
             if old:
@@ -128,7 +139,7 @@ class WatchOps:
                         raise WatchError('WiFi 信号不足或未知')
                 if b['sn']:
                     state = ('FAULT' if fault else 'CHARGING') if action == 'SWAP' else 'RESETTING'
-                    db.execute('UPDATE watch_inventory SET staff=NULL,state=?,reset_id=? WHERE store=? AND sn=?', (state, uuid4().hex if state == 'RESETTING' else None, self.cfg.store_id, b['sn']))
+                    db.execute('UPDATE watch_inventory SET staff=NULL,reset_at=NULL,state=?,reset_id=? WHERE store=? AND sn=?', (state, uuid4().hex if state == 'RESETTING' else None, self.cfg.store_id, b['sn']))
                 if action == 'RELEASE':
                     target, origin = None, None
                 else:
@@ -136,7 +147,7 @@ class WatchOps:
                     origin = (origin or b['sn']) if action == 'SWAP' else None
                 bid = uuid4().hex
                 db.execute('UPDATE watch_current SET sn=?,original=?,bind_id=?,version=version+1 WHERE store=? AND staff=?', (target, origin, bid, self.cfg.store_id, staff))
-                detail = json.dumps(dict(bind_id=bid, previous_version=b['version']), ensure_ascii=False)
+                detail = json.dumps(dict(bind_id=bid, previous_version=b['version'], context=context), ensure_ascii=False)
                 db.execute('INSERT INTO watch_operations(store,request_id,digest,staff,from_sn,to_sn,action,operator,source,at,detail) VALUES(?,?,?,?,?,?,?,?,?,?,?)', (self.cfg.store_id, request_id, digest, staff, b['sn'], target, action, operator, source, self.svc._now().isoformat(), detail))
                 result = dict(db.execute('SELECT * FROM watch_operations WHERE store=? AND request_id=?', (self.cfg.store_id, request_id)).fetchone())
         self.apply()
@@ -147,6 +158,7 @@ class WatchOps:
             self.svc._resync(staff)
         return result
 
+    @serialized
     def reset(self, sn, operator):
         with self.core._transaction() as db:
             w = db.execute('SELECT * FROM watch_inventory WHERE store=? AND sn=?', (self.cfg.store_id, sn)).fetchone()
@@ -157,6 +169,7 @@ class WatchOps:
             db.execute('INSERT INTO watch_operations(store,request_id,staff,from_sn,action,operator,source,at,detail) VALUES(?,?,NULL,?,?,?,?,?,?)', (self.cfg.store_id, rid, sn, 'RESET', operator, 'NURSE_STATION', self.svc._now().isoformat(), '{}'))
         self.send_context(sn)
 
+    @serialized
     def reset_ack(self, sn, rid):
         with self.core._transaction() as db:
             w = db.execute('SELECT * FROM watch_inventory WHERE store=? AND sn=?', (self.cfg.store_id, sn)).fetchone()
@@ -165,6 +178,25 @@ class WatchOps:
             d = next((r for r in self.svc.tele.devices() if r['device'] == sn), {})
             state = 'IDLE' if (d.get('battery') or 0) >= self.cfg.watch_policy['borrow_battery'] else 'CHARGING'
             db.execute('UPDATE watch_inventory SET state=?,reset_at=?,reset_id=NULL WHERE store=? AND sn=?', (state, self.svc._now().isoformat(), self.cfg.store_id, sn))
+
+    @serialized
+    def mark_fault(self, sn, note, operator):
+        if not isinstance(note, str) or not 1 <= len(note.strip()) <= 500:
+            raise WatchError('请输入故障原因（最多 500 字）')
+        with self.core._transaction() as db:
+            w = db.execute('SELECT * FROM watch_inventory WHERE store=? AND sn=?', (self.cfg.store_id, sn)).fetchone()
+            if not w or w['staff']:
+                raise WatchError('请先归还正在使用的手表')
+            db.execute("UPDATE watch_inventory SET state='FAULT',note=?,reset_id=NULL,reset_at=NULL WHERE store=? AND sn=?", (note, self.cfg.store_id, sn))
+            db.execute('INSERT INTO watch_operations(store,request_id,from_sn,action,operator,source,at,detail) VALUES(?,?,?,?,?,?,?,?)',
+                       (self.cfg.store_id, uuid4().hex, sn, 'FAULT', operator, 'NURSE_STATION', self.svc._now().isoformat(), json.dumps(dict(note=note), ensure_ascii=False)))
+        self.send_context(sn)
+
+    def _help_state(self, staff):
+        if not staff:
+            return []
+        with self.core._db() as db:
+            return [dict(r) for r in db.execute("SELECT * FROM team_help WHERE store=? AND (sender=? OR owner=?) AND state IN ('pending','claimed')", (self.cfg.store_id, staff, staff))]
 
     def send_context(self, sn):
         from . import protocol as P
@@ -177,6 +209,7 @@ class WatchOps:
         payload = dict(rollback_version=recovery['version'] if recovery else None,
                        directory=self.svc.team.roster(staff) if staff else [],
                        roles=self.cfg.roles,
+                       active_help=self._help_state(staff),
                        state=w['state'], reset_id=w['reset_id'], context=self.context(staff) if staff else None,
                        policy=self.cfg.watch_policy)
         self.svc.bus.publish(P.t_reply(self.cfg.store_id, sn), self.svc._msg('WATCH_CONTEXT', payload))

@@ -131,12 +131,13 @@ class MainActivity : Activity() {
                 }
             }, LinearLayout.LayoutParams(-1, dp(170)))
         } else if (WatchState.bound) {
-            box.addView(btn("长按求助", "#c0392b") {}.apply { setOnClickListener(null); setOnLongClickListener { WatchService.instance?.requestHelp(); true } }, LinearLayout.LayoutParams(-1, dp(70)))
+            box.addView(holdHelpButton(), LinearLayout.LayoutParams(-1, dp(70)))
         }
         if (WatchState.helpStatus.isNotBlank()) box.addView(TextView(this).apply { text = WatchState.helpStatus; textSize = 18f })
         WatchState.helps.values.toList().forEach { h ->
-            box.addView(btn("${h.optString("name")}求助 · 响应", "#a65b00") {
-                WatchService.instance?.watchCommand("HELP_ACTION", JSONObject().put("help_id", h.optString("help_id")).put("action", "claim"))
+            val owned = h.optString("status") == "claimed"
+            box.addView(btn(if (owned) "求助处理完成" else "${h.optString("name")}求助 · 响应", "#a65b00") {
+                WatchService.instance?.watchCommand("HELP_ACTION", JSONObject().put("help_id", h.optString("help_id")).put("action", if (owned) "complete" else "claim"))
             }, LinearLayout.LayoutParams(-1, dp(75)))
         }
         if (WatchState.bound) box.addView(btn("同事沟通", "#406a8a") { showTeam() }, LinearLayout.LayoutParams(-1, dp(64)))
@@ -159,6 +160,18 @@ class MainActivity : Activity() {
         scroll.post { scroll.scrollTo(0, 0) }
     }
 
+
+    private fun holdHelpButton() = Button(this).apply {
+        text = "长按 1 秒求助"; textSize = 22f; setTextColor(Color.WHITE); background = bg("#c0392b")
+        var pending: Runnable? = null
+        setOnTouchListener { v, e ->
+            when (e.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> { pending = Runnable { WatchService.instance?.requestHelp(); pending = null }; v.postDelayed(pending!!, 1000) }
+                android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> { pending?.let { v.removeCallbacks(it) }; pending = null }
+                android.view.MotionEvent.ACTION_MOVE -> if (e.x < 0 || e.y < 0 || e.x > v.width || e.y > v.height) { pending?.let { v.removeCallbacks(it) }; pending = null }
+            }; true
+        }
+    }
 
     private fun showTeam() {
         Thread {
@@ -210,7 +223,7 @@ class MainActivity : Activity() {
         }
         WatchState.messages.values.toList().asReversed().forEach { m ->
             col.addView(TextView(this).apply { text = m.optString("name") + "：" + m.optString("text", "语音"); textSize = 18f })
-            m.optString("voice_url").takeIf { it.startsWith("/voice/") }?.let { u -> col.addView(Button(this).apply { text = "播放同事语音"; setOnClickListener { WatchService.instance?.playVoice(u, true) } })
+            m.optString("voice_url").takeIf { it.startsWith("/voice/") }?.let { u -> col.addView(Button(this).apply { text = "播放同事语音"; setOnClickListener { WatchService.instance?.playVoice(u, true) } }) }
         }
         val dialog = AlertDialog.Builder(this).setTitle("同事沟通").setView(ScrollView(this).apply { addView(col) }).setNegativeButton("返回", null).create()
         dialog.setOnDismissListener { finish(false) }

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
+from functools import wraps
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 
@@ -21,8 +23,17 @@ OFFLINE_AFTER = timedelta(seconds=90)   # 3 missed 30 s heartbeats
 ACTIVE = ('claimed', 'arrived')
 
 
+def serialized(fn):
+    @wraps(fn)
+    def wrapped(self, *args, **kwargs):
+        with self.lock:
+            return fn(self, *args, **kwargs)
+    return wrapped
+
+
 class HostService:
     def __init__(self, cfg: StoreConfig, bus, db_path, clock=None):
+        self.lock = threading.RLock()
         self.cfg, self.bus = cfg, bus
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.core = Core(db_path, clock=self.clock)
@@ -137,7 +148,7 @@ class HostService:
             own = db.execute("SELECT id, state FROM calls WHERE owner=? AND store=? AND state IN ('claimed','arrived')",
                              (staff, self.cfg.store_id)).fetchall()
         for r in pend:
-            self._send_dispatch(r['call_id'], staff, r['reason'])
+            self._send_dispatch(r['call_id'], staff, 'resync')
         for r in own:
             self._send_dispatch(r['id'], staff, 'resync')
             self._state_to_watch(staff, r['id'], 'accepted' if r['state'] == 'claimed' else r['state'])
@@ -149,6 +160,7 @@ class HostService:
                 self.bus.publish(P.t_dispatch_watch(self.cfg.store_id, watch),
                                  self._msg(P.CALL_TAKEN, dict(reason=reason, by=by), call_id))
 
+    @serialized
     def tick(self):
         now = self._now()
         self.watches.apply()
@@ -162,6 +174,7 @@ class HostService:
         self._flush()
 
     # ---- inbound ---------------------------------------------------
+    @serialized
     def on_message(self, topic, raw):
         try:
             env = P.Envelope(**raw)
@@ -219,6 +232,8 @@ class HostService:
             staff = next((r['staff'] for r in rows if r['original'] == env.device_id), None)
         if not staff or not self.cfg.staff.get(staff, {}).get('on_duty', True):
             raise ValueError('当前手表未绑定在班员工')
+        if env.type != 'WATCH_ROLLBACK' and p.get('binding_id') != self.watches.context(staff)['binding']['bind_id']:
+            raise ValueError('绑定会话已失效')
         if env.type == 'WATCH_RECEIVED':
             self.team.receipt(env.device_id, p.get('delivery_id'))
         elif env.type == 'WATCH_ROLLBACK':
@@ -266,6 +281,8 @@ class HostService:
 
     def _staff_or_reject(self, env):
         s = self.cfg.staff_of_watch(env.device_id)
+        if s and env.payload.get('binding_id') and env.payload['binding_id'] != self.watches.context(s)['binding']['bind_id']:
+            s = None
         if not s:
             self._reject(env, 'unknown_device')
         return s
@@ -397,10 +414,14 @@ class HostService:
 
     def _h_heartbeat(self, env):
         p = P.HeartbeatPayload(**env.payload)
+        self.watches.seed()
         if self.cfg.room_of_tablet(env.device_id) and self.cfg.request_types \
                 and p.cfg_ver != self.tablet_config(env.device_id)['ver']:
             self._send_config(env.device_id)        # 按钮列表变了或平板还没有,30 秒内自动更新
         self.tele.heartbeat(env.device_id, self._now().isoformat(), p.battery, p.wifi_rssi, p.charging)
+        if p.battery is not None and p.battery >= self.cfg.watch_policy['borrow_battery']:
+            with self.core._db() as db:
+                db.execute("UPDATE watch_inventory SET state='IDLE' WHERE store=? AND sn=? AND state='CHARGING' AND staff IS NULL AND reset_at IS NOT NULL", (self.cfg.store_id, env.device_id))
         if p.battery_sample:
             with self.core._db() as db:
                 db.execute('INSERT INTO battery_samples(store,staff,watch,at,battery,charging) VALUES(?,?,?,?,?,?)',
