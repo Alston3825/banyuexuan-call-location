@@ -37,13 +37,12 @@ def acl_rules(cfg: StoreConfig):
         rules[dev] = [('write', f"{s}/call/{v['floor']}/{room}"), ('write', f'{s}/ack/+'),
                       ('write', f'{s}/heartbeat/{dev}'), ('write', f'{s}/status/{dev}'),
                       ('read', f'{s}/feedback/{room}'), ('read', f'{s}/reply/{dev}')]
-    for info in cfg.staff.values():
-        w = info.get('watch')
+    for w in set(cfg.watches) | {v.get('watch') for v in cfg.staff.values()}:
         if not w:
             continue
         rules[w] = [('write', f'{s}/ack/+'), ('write', f'{s}/heartbeat/{w}'),
                     ('write', f'{s}/location/{w}'), ('write', f'{s}/vitals/{w}'),
-                    ('write', f'{s}/status/{w}'),
+                    ('write', f'{s}/status/{w}'), ('write', f'{s}/watch/{w}'),
                     ('read', f'{s}/dispatch/{w}'), ('read', f'{s}/reply/{w}')]
     rules['station'] = [('read', f'{s}/station/dispatch'), ('read', f'{s}/call/events')]
     return rules

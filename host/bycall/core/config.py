@@ -21,6 +21,26 @@ class StoreConfig:
     leader_after: int = 30
     voice_retention_days: int = 30
 
+    watches: Dict[str, dict] = field(default_factory=dict)  # 独立设备档案，含备用表 SN/MAC
+    watch_policy: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        defaults = dict(borrow_battery=80, min_spares=2, min_wifi_rssi=-80,
+                        offline_seconds=90, help_floor_seconds=30, help_leader_seconds=60,
+                        voice_max_seconds=30, message_interval_seconds=3, retry_seconds=3,
+                        battery_seconds=900, scan_interval_seconds=10, scan_window_seconds=2,
+                        quick_replies=['收到', '马上到', '需要帮忙'],
+                        broadcast_roles=['HEAD_NURSE', 'NURSE_MANAGER'])
+        defaults.update(self.watch_policy)
+        for key in ('borrow_battery', 'min_spares', 'offline_seconds', 'help_floor_seconds',
+                    'help_leader_seconds', 'voice_max_seconds', 'message_interval_seconds',
+                    'retry_seconds', 'battery_seconds', 'scan_interval_seconds', 'scan_window_seconds'):
+            if not isinstance(defaults[key], (int, float)) or defaults[key] <= 0:
+                raise ValueError('invalid watch policy: ' + key)
+        if defaults['borrow_battery'] > 100 or defaults['scan_window_seconds'] > defaults['scan_interval_seconds'] or defaults['help_leader_seconds'] < defaults['help_floor_seconds']:
+            raise ValueError('invalid watch policy range')
+        self.watch_policy = defaults
+
     @classmethod
     def load(cls, path) -> 'StoreConfig':
         with open(path, encoding='utf-8') as f:

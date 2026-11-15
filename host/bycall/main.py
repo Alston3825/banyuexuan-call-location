@@ -46,6 +46,7 @@ def main():
         sync = MasterSync(client, os.path.join(data, 'host.db'), cfg, svc.roster)
         sync.apply()                  # 先用上次缓存的主数据,管理系统不通也能启动
         wb = CallWriteback(client, svc.core, cfg)
+    svc.watches.seed()
     bus.start()
 
     def loop():
@@ -63,6 +64,7 @@ def main():
             if sync and n % 30 == 0:  # 每 30 秒增量同步,每 6 小时全量(发现删除)
                 try:
                     sync.sync(full=(n % 21600 == 0))
+                    svc.watches.seed()
                     hstat.report('sync', True)
                 except MgmtError as e:
                     hstat.report('sync', False, '与管理系统同步失败,房间/人员/服务项数据可能不是最新的', after_s=120)

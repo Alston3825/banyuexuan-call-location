@@ -1,7 +1,7 @@
 """本店腕表绑定事务。业务始终归员工；设备擦除回执前禁止再次借出。"""
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 
 
@@ -108,7 +108,7 @@ class WatchOps:
                     target = origin
                     if action == 'UNDO':
                         last = db.execute('SELECT at FROM watch_operations WHERE store=? AND staff=? ORDER BY seq DESC LIMIT 1', (self.cfg.store_id, staff)).fetchone()
-                        if not last or datetime.fromisoformat(last['at']).astimezone().date() != self.svc._now().astimezone().date():
+                        if not last or datetime.fromisoformat(last['at']).astimezone(timezone(timedelta(hours=8))).date() != self.svc._now().astimezone(timezone(timedelta(hours=8))).date():
                             raise WatchError('只能撤销当日操作')
                 if action != 'RELEASE':
                     if not self.cfg.staff[staff].get('on_duty', True):
@@ -173,6 +173,10 @@ class WatchOps:
             w = db.execute('SELECT * FROM watch_inventory WHERE store=? AND sn=?', (self.cfg.store_id, sn)).fetchone()
         if not w:
             return
-        payload = dict(state=w['state'], reset_id=w['reset_id'], context=self.context(staff) if staff else None,
+        recovery = next((r for r in self.rows('watch_current') if r['original'] == sn), None)
+        payload = dict(rollback_version=recovery['version'] if recovery else None,
+                       directory=self.svc.team.roster(staff) if staff else [],
+                       roles=self.cfg.roles,
+                       state=w['state'], reset_id=w['reset_id'], context=self.context(staff) if staff else None,
                        policy=self.cfg.watch_policy)
         self.svc.bus.publish(P.t_reply(self.cfg.store_id, sn), self.svc._msg('WATCH_CONTEXT', payload))

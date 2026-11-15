@@ -102,5 +102,12 @@ class MasterSync:
         if codes:
             cfg.request_types.clear()
             cfg.request_types.update({c['service_code']: c.get('name', c['service_code']) for c in codes})
+        # 本地换绑优先于管理系统旧 watch_id；不向外部主数据写入。
+        with closing(sqlite3.connect(self.path)) as db:
+            exists = db.execute("SELECT 1 FROM sqlite_master WHERE name='watch_current'").fetchone()
+            if exists:
+                for sid, sn in db.execute('SELECT staff,sn FROM watch_current WHERE store=?', (cfg.store_id,)):
+                    if sid in cfg.staff:
+                        cfg.staff[sid]['watch'] = sn
         return dict(rooms=len(cfg.rooms), staff=len(cfg.staff), groups={k: len(v) for k, v in groups.items()},
                     beacons=len(cfg.beacons), service_codes=len(cfg.request_types))

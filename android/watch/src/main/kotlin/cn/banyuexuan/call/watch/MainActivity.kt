@@ -71,8 +71,9 @@ class MainActivity : Activity() {
     override fun onStop() { super.onStop(); if (!::box.isInitialized) return; WatchState.update { WatchState.appVisible = false }; WatchState.unlisten(listener); updHandler.removeCallbacks(updTick) }
 
     private fun askPermissions() {
-        val need = listOf(Manifest.permission.POST_NOTIFICATIONS, Manifest.permission.BLUETOOTH_SCAN,
-            Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.BODY_SENSORS)
+        val need = (listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.BODY_SENSORS, Manifest.permission.RECORD_AUDIO)
+            + (if (android.os.Build.VERSION.SDK_INT >= 31) listOf(Manifest.permission.BLUETOOTH_SCAN) else emptyList())
+            + (if (android.os.Build.VERSION.SDK_INT >= 33) listOf(Manifest.permission.POST_NOTIFICATIONS) else emptyList()))
             .filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (need.isEmpty()) afterPermissions() else requestPermissions(need.toTypedArray(), 1)
     }
@@ -114,12 +115,110 @@ class MainActivity : Activity() {
             text = "🔋 电量只剩 ${WatchState.battery}%,请尽快充电"; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE)
             background = bg("#c0392b"); setPadding(dp(12), dp(10), dp(12), dp(10)) }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         WatchState.notice?.let { Toast.makeText(this, it, Toast.LENGTH_LONG).show(); WatchState.notice = null }
+        if (WatchState.bound && WatchState.alerts.isEmpty()) {
+            box.addView(Button(this).apply {
+                text = "长按 1 秒求助"; textSize = 28f; setTextColor(Color.WHITE); background = bg("#c0392b")
+                var pending: Runnable? = null
+                setOnTouchListener { v, e ->
+                    when (e.actionMasked) {
+                        android.view.MotionEvent.ACTION_DOWN -> {
+                            pending = Runnable { WatchService.instance?.requestHelp(); pending = null }
+                            v.postDelayed(pending!!, 1000)
+                        }
+                        android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> { pending?.let { v.removeCallbacks(it) }; pending = null }
+                        android.view.MotionEvent.ACTION_MOVE -> if (e.x < 0 || e.y < 0 || e.x > v.width || e.y > v.height) { pending?.let { v.removeCallbacks(it) }; pending = null }
+                    }; true
+                }
+            }, LinearLayout.LayoutParams(-1, dp(170)))
+        } else if (WatchState.bound) {
+            box.addView(btn("长按求助", "#c0392b") {}.apply { setOnClickListener(null); setOnLongClickListener { WatchService.instance?.requestHelp(); true } }, LinearLayout.LayoutParams(-1, dp(70)))
+        }
+        if (WatchState.helpStatus.isNotBlank()) box.addView(TextView(this).apply { text = WatchState.helpStatus; textSize = 18f })
+        WatchState.helps.values.toList().forEach { h ->
+            box.addView(btn("${h.optString("name")}求助 · 响应", "#a65b00") {
+                WatchService.instance?.watchCommand("HELP_ACTION", JSONObject().put("help_id", h.optString("help_id")).put("action", "claim"))
+            }, LinearLayout.LayoutParams(-1, dp(75)))
+        }
+        if (WatchState.bound) box.addView(btn("同事沟通", "#406a8a") { showTeam() }, LinearLayout.LayoutParams(-1, dp(64)))
+        val binding = WatchState.context?.optJSONObject("binding")
+        if (binding?.optString("original")?.let { it.isNotBlank() && it != "null" } == true)
+            box.addView(btn("一键归位", "#7a6a5c") {
+                AlertDialog.Builder(this).setMessage("切回已充电原表？未完成事件将随员工迁移，当前表清空。")
+                    .setPositiveButton("确认") { _, _ -> WatchService.instance?.watchCommand("WATCH_ROLLBACK", JSONObject().put("version", binding.optInt("version"))) }.setNegativeButton("取消", null).show()
+            }, LinearLayout.LayoutParams(-1, dp(64)))
+        WatchState.rollbackVersion?.let { version ->
+            box.addView(btn("一键归位（原表）", "#7a6a5c") {
+                AlertDialog.Builder(this).setMessage("确认切回本表？备用表将清空。")
+                    .setPositiveButton("确认") { _, _ -> WatchService.instance?.watchCommand("WATCH_ROLLBACK", JSONObject().put("version", version)) }.setNegativeButton("取消", null).show()
+            }, LinearLayout.LayoutParams(-1, dp(64)))
+        }
+        if (!WatchState.bound) box.addView(TextView(this).apply { text = "未绑定在班员工，请到护士站领表"; textSize = 18f })
         if (WatchState.alerts.isEmpty()) box.addView(TextView(this).apply { text = "暂无呼叫"; textSize = 22f; gravity = Gravity.CENTER; setPadding(0, dp(40), 0, 0) })
         WatchState.alerts.values.forEach { a -> box.addView(card(a), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) }) }
         box.addView(btn("📋 我的记录", "#7a6a5c") { openHistory() }, LinearLayout.LayoutParams(-1, dp(64)).apply { topMargin = dp(14) })
         scroll.post { scroll.scrollTo(0, 0) }
     }
 
+
+    private fun showTeam() {
+        Thread {
+            val cfg = WatchService.config(this)
+            // 通讯录经由本表专属 MQTT 主题返回，不传入员工身份。
+            WatchService.instance?.watchCommand("TEAM_ROSTER")
+        }.start()
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(10), 0, dp(10), 0) }
+        val channel = android.widget.Spinner(this).apply { adapter = android.widget.ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, listOf("楼层群", "护理部群", "全公司群发", "一对一", "按角色")) }
+        col.addView(channel)
+        val people = (0 until WatchState.directory.length()).map { WatchState.directory.getJSONObject(it) }
+        val targets = people.map { it.optString("id") to it.optString("name") } + WatchState.roles.keys().asSequence().map { it to ("岗位：" + WatchState.roles.optString(it)) }.toList()
+        val target = android.widget.Spinner(this).apply { adapter = android.widget.ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, targets.map { it.second }) }; col.addView(target)
+        fun body() = JSONObject().put("channel", listOf("floor", "department", "company", "direct", "role")[channel.selectedItemPosition]).put("target", targets.getOrNull(target.selectedItemPosition)?.first ?: "")
+        val replies = WatchState.policy.optJSONArray("quick_replies") ?: org.json.JSONArray(listOf("收到", "马上到", "需要帮忙"))
+        for (i in 0 until replies.length()) col.addView(Button(this).apply { text = replies.getString(i); setOnClickListener { WatchService.instance?.watchCommand("TEAM_SEND", body().put("text", text.toString())) } })
+        val record = Button(this).apply { text = "按住说话（最长 30 秒）" }; col.addView(record)
+        var recorder: android.media.MediaRecorder? = null
+        var file: java.io.File? = null
+        var started = 0L
+        val handler = Handler(Looper.getMainLooper())
+        fun finish(send: Boolean) {
+            val rec = recorder ?: return; recorder = null
+            handler.removeCallbacksAndMessages(null)
+            val f = file; file = null
+            val seconds = (android.os.SystemClock.elapsedRealtime() - started) / 1000.0
+            var ok = true
+            try { rec.stop() } catch (_: Exception) { ok = false }; rec.release(); record.text = "按住说话"
+            if (send && ok && f != null && seconds > 0.3) {
+                val b = body().put("seconds", seconds.coerceAtMost(WatchState.policy.optDouble("voice_max_seconds", 30.0)))
+                Thread { val cfg = WatchService.config(this); val u = cn.banyuexuan.call.common.Http.upload(cfg.apiBase, cfg.apiKey, f.readBytes(), "m4a"); f.delete()
+                    if (u != null) WatchService.instance?.watchCommand("TEAM_SEND", b.put("voice_url", u)) else WatchState.update { WatchState.notice = "语音上传失败" }
+                }.start()
+            } else f?.delete()
+        }
+        record.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED && WatchState.alerts.isEmpty()) {
+                    try {
+                        val f = java.io.File.createTempFile("team-", ".m4a", cacheDir); file = f
+                        recorder = android.media.MediaRecorder().apply { setAudioSource(android.media.MediaRecorder.AudioSource.MIC); setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4); setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC); setOutputFile(f.path); prepare(); start() }
+                        started = android.os.SystemClock.elapsedRealtime(); record.text = "录音中，松开发送"
+                        handler.postDelayed({ finish(true) }, (WatchState.policy.optLong("voice_max_seconds", 30).coerceIn(1, 120)) * 1000)
+                    } catch (_: Exception) { finish(false); Toast.makeText(this, "录音失败，请检查麦克风权限", Toast.LENGTH_SHORT).show() }
+                }
+                android.view.MotionEvent.ACTION_UP -> finish(true)
+                android.view.MotionEvent.ACTION_CANCEL -> finish(false)
+            }; true
+        }
+        WatchState.messages.values.toList().asReversed().forEach { m ->
+            col.addView(TextView(this).apply { text = m.optString("name") + "：" + m.optString("text", "语音"); textSize = 18f })
+            m.optString("voice_url").takeIf { it.startsWith("/voice/") }?.let { u -> col.addView(Button(this).apply { text = "播放同事语音"; setOnClickListener { WatchService.instance?.playVoice(u, true) } })
+        }
+        val dialog = AlertDialog.Builder(this).setTitle("同事沟通").setView(ScrollView(this).apply { addView(col) }).setNegativeButton("返回", null).create()
+        dialog.setOnDismissListener { finish(false) }
+        val interrupt: () -> Unit = { if (WatchState.alerts.isNotEmpty()) { finish(false); dialog.dismiss() } }
+        dialog.setOnShowListener { WatchState.listen(interrupt) }
+        dialog.setOnDismissListener { finish(false); WatchState.unlisten(interrupt) }
+        dialog.show()
+    }
 
     // ---- 我的记录:最近 30 天接过的单(数据在主机),可回看时间线、听留言、看转文字 ----
     private enum class HistView { NONE, LIST, DETAIL }

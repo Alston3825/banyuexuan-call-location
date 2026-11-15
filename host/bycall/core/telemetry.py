@@ -20,6 +20,7 @@ class Telemetry:
                 id INTEGER PRIMARY KEY AUTOINCREMENT, staff TEXT NOT NULL, watch TEXT NOT NULL,
                 at TEXT NOT NULL, heart_rate INTEGER, spo2 INTEGER, temperature REAL, steps INTEGER);
             """)
+            db.execute("CREATE TABLE IF NOT EXISTS battery_samples(id INTEGER PRIMARY KEY AUTOINCREMENT, store TEXT, staff TEXT, watch TEXT, at TEXT, battery INTEGER, charging INTEGER)")
             if 'charging' not in [r[1] for r in db.execute('PRAGMA table_info(device_status)')]:
                 db.execute('ALTER TABLE device_status ADD COLUMN charging INTEGER')    # 老库升级
             db.commit()

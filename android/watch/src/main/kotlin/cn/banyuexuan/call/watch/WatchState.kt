@@ -9,6 +9,15 @@ object WatchState {
     data class Alert(val callId: String, val roomNo: String, val label: String, val voiceUrl: String?, val text: String?,
                      val emergency: Boolean, val reason: String, var status: String = "pending")
 
+    var context: org.json.JSONObject? = null
+    var policy = org.json.JSONObject()
+    var bound = false
+    var directory = org.json.JSONArray()
+    var roles = org.json.JSONObject()
+    var rollbackVersion: Int? = null
+    var helpStatus = ""
+    val helps = LinkedHashMap<String, org.json.JSONObject>()
+    val messages = LinkedHashMap<String, org.json.JSONObject>()
     val alerts = LinkedHashMap<String, Alert>()      // main-thread access only via update()
     @Volatile var connected = false
     @Volatile var appVisible = false                  // 主界面在前台时为 true(此时不显示悬浮球)

@@ -21,6 +21,8 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
                backup_mgr=None, restart=None, app_updates=None, transcriber=None) -> FastAPI:
     app = FastAPI(title='伴月轩智能呼叫定位系统 主机 API', version='0.1')
     store = svc.cfg.store_id
+    from .watch_admin import install
+    install(app, svc)
 
     def auth(x_api_key: Optional[str] = Header(default=None)):
         if api_key and not (x_api_key and hmac.compare_digest(x_api_key, api_key)):

@@ -33,6 +33,10 @@ class HostService:
         self.routing = ButtonRouting(db_path, cfg.roles)
         self.roster.roles = {s: cfg.role_of(s) for s in cfg.staff}
         self.locator = Locator(cfg.beacons)
+        from .watchops import WatchOps
+        from .team import Team
+        self.watches = WatchOps(self)
+        self.team = Team(self)
         self.rejected_count = 0
         self._seen = OrderedDict()
         self._cursor = 0
@@ -82,8 +86,10 @@ class HostService:
         self.roster.set_status(staff, 'busy' if self._active_calls(staff) else 'available')
 
     def _online(self, staff):
+        if not self.cfg.staff.get(staff, {}).get('on_duty', True):
+            return False
         w = self.cfg.watch_of(staff)
-        return any(d['device'] == w and d['online'] for d in self.tele.devices())
+        return any(d['device'] == w and d['online'] and self.watches.fresh(d) for d in self.tele.devices())
 
     def _act(self, call_id, actor, action, **kw):
         c = self.core.get(call_id, store=self.cfg.store_id)
@@ -110,8 +116,11 @@ class HostService:
             return
         watch = self.cfg.watch_of(target)
         if watch:
-            self.bus.publish(P.t_dispatch_watch(self.cfg.store_id, watch),
-                             self._msg(P.CALL_DISPATCH, payload, call_id))
+            self.team.enqueue(target, P.CALL_DISPATCH, call_id, payload)
+            if reason == 'resync':
+                with self.core._db() as db:
+                    db.execute("UPDATE watch_delivery SET received=NULL,sent=NULL WHERE store=? AND staff=? AND kind='CALL_DISPATCH' AND ref=?", (self.cfg.store_id, target, call_id))
+            self.team.flush()
 
     def _state_to_watch(self, staff, call_id, status):
         watch = self.cfg.watch_of(staff)
@@ -142,12 +151,14 @@ class HostService:
 
     def tick(self):
         now = self._now()
-        for dev in self.tele.stale_online((now - OFFLINE_AFTER).isoformat()):
+        self.watches.apply()
+        for dev in self.tele.stale_online((now - timedelta(seconds=self.cfg.watch_policy['offline_seconds'])).isoformat()):
             self.tele.set_online(dev, False, now.isoformat())
             s = self.cfg.staff_of_watch(dev)
             if s:
                 self.roster.set_status(s, 'offline')
         self._dispatch_new()
+        self.team.tick()
         self._flush()
 
     # ---- inbound ---------------------------------------------------
@@ -165,6 +176,16 @@ class HostService:
         if len(parts) == 3 and parts[1] in ('heartbeat', 'location', 'vitals', 'status') \
                 and parts[2] != env.device_id:
             return self._reject(env, 'topic_device_mismatch')
+        if len(parts) == 3 and parts[1] == 'watch':
+            if parts[2] != env.device_id:
+                return self._reject(env, 'topic_device_mismatch')
+            try:
+                self._h_watch(env)
+            except (ValueError, KeyError, TypeError) as e:
+                self._reject(env, str(e))
+            return
+        if env.type in ('WATCH_RESET_ACK', 'WATCH_ROLLBACK', 'WATCH_RECEIVED', 'HELP_REQUEST', 'HELP_ACTION', 'TEAM_SEND'):
+            return self._reject(env, 'dedicated_watch_topic_required')
         if env.msg_id in self._seen:
             return
         self._seen[env.msg_id] = 1
@@ -186,6 +207,37 @@ class HostService:
         except KeyError:
             self._reject(env, 'unknown_call')
         self._flush()
+
+    def _h_watch(self, env):
+        p = env.payload
+        if env.type == 'WATCH_RESET_ACK':
+            self.watches.reset_ack(env.device_id, p.get('reset_id'))
+            return self.watches.send_context(env.device_id)
+        staff = self.cfg.staff_of_watch(env.device_id)
+        if env.type == 'WATCH_ROLLBACK' and not staff:
+            rows = self.watches.rows('watch_current')
+            staff = next((r['staff'] for r in rows if r['original'] == env.device_id), None)
+        if not staff or not self.cfg.staff.get(staff, {}).get('on_duty', True):
+            raise ValueError('当前手表未绑定在班员工')
+        if env.type == 'WATCH_RECEIVED':
+            self.team.receipt(env.device_id, p.get('delivery_id'))
+        elif env.type == 'WATCH_ROLLBACK':
+            ctx = self.watches.context(staff)
+            self.watches.change(staff=staff, action='ROLLBACK', expected_version=p.get('version'),
+                                request_id=env.msg_id, operator=staff, source='WATCH_BUTTON')
+        elif env.type == 'HELP_REQUEST':
+            hid = self.team.help(staff, env.msg_id)
+            self.bus.publish(P.t_reply(self.cfg.store_id, env.device_id), self._msg('HELP_STATE', dict(help_id=hid, status='sent')))
+        elif env.type == 'HELP_ACTION':
+            self.team.help_act(staff, p.get('help_id'), p.get('action'))
+        elif env.type == 'TEAM_ROSTER':
+            self.watches.send_context(env.device_id)
+        elif env.type == 'TEAM_SEND':
+            mid = self.team.message(staff, env.msg_id, p)
+            self.bus.publish(P.t_reply(self.cfg.store_id, env.device_id), self._msg('TEAM_SENT', dict(message_id=mid)))
+        else:
+            raise ValueError('unknown_type')
+        self.team.flush()
 
     def _h_request(self, env):
         room = self.cfg.room_of_tablet(env.device_id)
@@ -349,6 +401,11 @@ class HostService:
                 and p.cfg_ver != self.tablet_config(env.device_id)['ver']:
             self._send_config(env.device_id)        # 按钮列表变了或平板还没有,30 秒内自动更新
         self.tele.heartbeat(env.device_id, self._now().isoformat(), p.battery, p.wifi_rssi, p.charging)
+        if p.battery_sample:
+            with self.core._db() as db:
+                db.execute('INSERT INTO battery_samples(store,staff,watch,at,battery,charging) VALUES(?,?,?,?,?,?)',
+                           (self.cfg.store_id, self.cfg.staff_of_watch(env.device_id), env.device_id, self._now().isoformat(), p.battery, p.charging))
+        self.watches.send_context(env.device_id)
         staff = self.cfg.staff_of_watch(env.device_id)
         if staff:
             was_off = self.roster.state(staff) == 'offline'
@@ -365,6 +422,8 @@ class HostService:
         staff = self.cfg.staff_of_watch(env.device_id)
         if staff and not online:
             self.roster.set_status(staff, 'offline')
+        if online:
+            self.watches.send_context(env.device_id)
         if staff and online:
             self.roster.set_status(staff, 'busy' if self._active_calls(staff) else 'available')
             self._resync(staff)

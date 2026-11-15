@@ -89,7 +89,7 @@ class WatchService : Service() {
                 else startForeground(1, n)                          // API 26-28 没有带类型的重载
             } catch (e: Exception) { startForeground(1, n) }        // 带类型失败(缺权限等)时退回按清单声明的类型启动
         } catch (e: Exception) { stopSelf(); return }              // permissions not granted yet: the activity restarts us
-        startBus(); startScan(); startTimers()
+        startBus(); startTimers(); main.post(scanCycle)
         bubble = Bubble(this); WatchState.listen(bubbleListener); bubble?.refresh()
     }
 
@@ -100,7 +100,7 @@ class WatchService : Service() {
         WatchState.unlisten(bubbleListener); bubble?.hide()
         instance = null
         val old = bus; bus = null; WatchState.connected = false
-        timer?.cancel(); old?.disconnect(); stopScan(); player?.release()
+        timer?.cancel(); main.removeCallbacksAndMessages(null); old?.disconnect(); stopScan(); player?.release(); player = null
         super.onDestroy()
     }
 
@@ -122,8 +122,18 @@ class WatchService : Service() {
     private fun onMessage(m: JSONObject) {
         val p = m.optJSONObject("payload") ?: JSONObject()
         val id = m.optString("call_id")
+        if (m.optString("store_id") != cfg.store) return
+        if (m.optString("type") == "WATCH_CONTEXT") {
+            main.post { applyContext(p) }; return
+        }
+        if (p.has("binding_id") && p.optString("binding_id") != WatchState.context?.optJSONObject("binding")?.optString("bind_id")) return
+        if (p.has("delivery_id")) {
+            if (m.optString("type") == "TEAM_MESSAGE" && WatchState.alerts.values.any { it.status != "completed" }) return
+            watchCommand("WATCH_RECEIVED", JSONObject().put("delivery_id", p.optString("delivery_id")))
+        }
         when (m.optString("type")) {
             Proto.CALL_DISPATCH -> {
+                stopAudio()
                 fun str(k: String): String? = if (p.isNull(k)) null else p.optString(k).ifBlank { null }   // JSON null must not become "null"
                 val a = Alert(id, str("room_no") ?: "", str("label") ?: str("service_code") ?: "",
                     str("voice_url"), str("text"), p.optString("priority") == "emergency", str("reason") ?: "")
@@ -144,6 +154,30 @@ class WatchService : Service() {
                     else -> WatchState.alerts[id]?.status = p.optString("status")
                 }
             }
+            "HELP_ALERT" -> WatchState.update {
+                val hid = p.optString("help_id")
+                if (!WatchState.helps.containsKey(hid)) { WatchState.helps[hid] = p; pulse(longArrayOf(0, 250, 150, 250, 150, 250)) }
+            }
+            "HELP_STATE" -> WatchState.update {
+                val hid = p.optString("help_id")
+                val status = p.optString("status")
+                if (status == "claimed" || status == "complete" || status == "cancel") WatchState.helps.remove(hid)
+                WatchState.helpStatus = when (status) {
+                    "sent" -> "求助已发出"
+                    "claimed" -> "${p.optString("by")}已响应"
+                    "escalated" -> "无人响应，已升级"
+                    else -> "求助已结束"
+                }
+            }
+            "TEAM_MESSAGE" -> WatchState.update {
+                val mid = p.optString("message_id")
+                if (!WatchState.messages.containsKey(mid)) {
+                    WatchState.messages[mid] = p
+                    while (WatchState.messages.size > 100) WatchState.messages.remove(WatchState.messages.keys.first())
+                    pulse(longArrayOf(0, 120))
+                }
+            }
+            "TEAM_SENT" -> WatchState.update { WatchState.notice = "消息已存入主机，等待送达" }
             Proto.CMD_REJECTED -> WatchState.update {
                 WatchState.notice = when (p.optString("reason")) {
                     "already_taken_or_closed" -> { WatchState.alerts.remove(id); "已被别人接走" }
@@ -154,17 +188,60 @@ class WatchService : Service() {
         }
     }
 
+    private fun pulse(pattern: LongArray) {
+        val vib = if (android.os.Build.VERSION.SDK_INT >= 31) getSystemService(VibratorManager::class.java).defaultVibrator else getSystemService(Vibrator::class.java)
+        vib.vibrate(VibrationEffect.createWaveform(pattern, -1))
+    }
+
+    private fun stopAudio() { main.post { player?.release(); player = null } }
+
+    fun watchCommand(type: String, payload: JSONObject = JSONObject()) {
+        if (bus?.publish("${cfg.store}/watch/${cfg.deviceId}", Proto.envelope(cfg.store, cfg.deviceId, type, payload)) != true)
+            WatchState.update { WatchState.notice = "网络未连接，请恢复后重试" }
+    }
+
+    fun requestHelp() {
+        watchCommand("HELP_REQUEST")
+        pulse(longArrayOf(0, 200))
+        WatchState.update { WatchState.helpStatus = "正在发送，等待主机确认" }
+    }
+
+    private fun applyContext(p: JSONObject) {
+        val next = p.optJSONObject("context")
+        val previous = WatchState.context?.optJSONObject("binding")?.optString("bind_id")
+        val changed = previous != next?.optJSONObject("binding")?.optString("bind_id")
+        if (next == null || changed) {
+            stopAudio(); WatchState.alerts.clear(); WatchState.messages.clear(); WatchState.helps.clear()
+            WatchState.where = "—"; WatchState.helpStatus = ""; window.drain()
+            cacheDir.listFiles()?.forEach { it.deleteRecursively() }
+            getSystemService(NotificationManager::class.java).cancelAll()
+        }
+        // 员工数据只保存在内存；设备 MQTT/API 凭据属于硬件，不随员工迁移或擦除。
+        WatchState.directory = p.optJSONArray("directory") ?: JSONArray()
+        WatchState.roles = p.optJSONObject("roles") ?: JSONObject()
+        WatchState.rollbackVersion = if (p.isNull("rollback_version")) null else p.optInt("rollback_version")
+        WatchState.context = next; WatchState.bound = next != null
+        WatchState.policy = p.optJSONObject("policy") ?: JSONObject()
+        if (p.optString("state") == "RESETTING") {
+            watchCommand("WATCH_RESET_ACK", JSONObject().put("reset_id", p.optString("reset_id")))
+        }
+        WatchState.update { }
+    }
+
     // ---- commands from the UI --------------------------------------
     fun command(type: String, callId: String, payload: JSONObject = JSONObject()) {
         bus?.publish(Proto.tAck(cfg.store, callId), Proto.envelope(cfg.store, cfg.deviceId, type, payload, callId))
     }
 
-    fun playVoice(voiceUrl: String) {
+    fun playVoice(voiceUrl: String, colleague: Boolean = false) {
+        val binding = WatchState.context?.optJSONObject("binding")?.optString("bind_id")
         Thread {
             val f = File(cacheDir, "v-" + voiceUrl.substringAfterLast('/'))
             if (f.exists() || Http.download(cfg.apiBase, cfg.apiKey, voiceUrl, f)) main.post {
+                if (binding != WatchState.context?.optJSONObject("binding")?.optString("bind_id") ||
+                    (colleague && WatchState.alerts.values.any { it.status != "completed" })) return@post
                 player?.release()
-                player = MediaPlayer().apply { setDataSource(f.path); setOnCompletionListener { it.release() }; prepare(); start() }
+                player = MediaPlayer().apply { setDataSource(f.path); setOnCompletionListener { it.release(); player = null }; prepare(); start() }
             } else WatchState.update { WatchState.notice = "留言下载失败" }
         }.start()
     }
@@ -199,7 +276,9 @@ class WatchService : Service() {
     private fun has(p: String) = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
 
     private fun startScan() {
-        if (!has(Manifest.permission.BLUETOOTH_SCAN)) return
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            if (!has(Manifest.permission.BLUETOOTH_SCAN)) return
+        } else if (!has(Manifest.permission.ACCESS_FINE_LOCATION)) return
         val scanner = getSystemService(BluetoothManager::class.java).adapter?.bluetoothLeScanner ?: return
         val cb = object : ScanCallback() {
             override fun onScanResult(t: Int, r: ScanResult) { Beacons.parse(r, cfg["beacon_uuid"])?.let { window.add(it) } }
@@ -210,7 +289,18 @@ class WatchService : Service() {
 
     private fun stopScan() {
         val cb = scanCb ?: return
+        scanCb = null
         try { getSystemService(BluetoothManager::class.java).adapter?.bluetoothLeScanner?.stopScan(cb) } catch (_: Exception) {}
+    }
+
+    private val scanCycle = object : Runnable {
+        override fun run() {
+            val interval = WatchState.policy.optLong("scan_interval_seconds", 10).coerceIn(3, 300) * 1000
+            val duration = WatchState.policy.optLong("scan_window_seconds", 2).coerceIn(1, interval / 1000) * 1000
+            startScan()
+            main.postDelayed({ stopScan() }, duration)
+            main.postDelayed(this, interval)
+        }
     }
 
     private fun startTimers() {
@@ -240,7 +330,7 @@ class WatchService : Service() {
                 val open = PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
                 nm.notify(2, Notification.Builder(this, CH_BATTERY).setSmallIcon(android.R.drawable.stat_notify_error)
-                    .setContentTitle("手表电量只剩 $bat%").setContentText("请尽快充电,没电会收不到呼叫").setContentIntent(open).build())
+                    .setContentTitle("手表电量只剩 $bat%").setContentText("请到护士站换表，避免漏接呼叫").setContentIntent(open).build())
             }
         } else if (bat >= WatchState.LOW_BATTERY + 5 || charging) {
             lowNotified = false; nm.cancel(2)
@@ -248,14 +338,19 @@ class WatchService : Service() {
         if (wasLow != WatchState.lowBattery) WatchState.update { }      // 刷新界面上的提示条
     }
 
+    private var lastBatteryAt = 0L
     private fun heartbeat() {
         // 用系统电量广播(粘性)读取:比 BATTERY_PROPERTY_CAPACITY 在各厂家系统上更可靠
         val i = registerReceiver(null, android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
         val scale = i?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
         val bat = (i?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1).let { if (it < 0 || scale <= 0) 100 else it * 100 / scale }
         checkBattery(bat.coerceIn(0, 100), (i?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0) != 0)
+        val now = System.currentTimeMillis()
+        val reportBattery = now - lastBatteryAt >= WatchState.policy.optLong("battery_seconds", 900).coerceAtLeast(30) * 1000
+        if (reportBattery) lastBatteryAt = now
+        val wifi = try { (applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager).connectionInfo.rssi } catch (_: Exception) { -127 }
         bus?.publish(Proto.tHeartbeat(cfg.store, cfg.deviceId), Proto.envelope(cfg.store, cfg.deviceId, Proto.HEARTBEAT,
-            JSONObject().put("battery", bat.coerceIn(0, 100)).put("charging", WatchState.charging)), qos0 = true)
+            JSONObject().put("battery", bat.coerceIn(0, 100)).put("charging", WatchState.charging).put("wifi_rssi", wifi).put("battery_sample", reportBattery)), qos0 = true)
     }
 
     private fun reportLocation() {

@@ -84,6 +84,7 @@ class HeartbeatPayload(BaseModel):
     battery: Optional[int] = Field(default=None, ge=0, le=100)
     wifi_rssi: Optional[int] = None
     charging: Optional[bool] = None    # watches: currently on the charger
+    battery_sample: bool = False
     cfg_ver: Optional[str] = None      # tablets: version of the button list they hold
 
 
@@ -103,4 +104,4 @@ def t_reply(store, dev): return f'{store}/reply/{dev}'
 
 def host_subscriptions(store):
     return [f'{store}/call/+/+', f'{store}/ack/+', f'{store}/heartbeat/+',
-            f'{store}/location/+', f'{store}/vitals/+', f'{store}/status/+']
+            f'{store}/location/+', f'{store}/vitals/+', f'{store}/status/+', f'{store}/watch/+']
