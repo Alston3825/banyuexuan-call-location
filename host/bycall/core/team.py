@@ -30,7 +30,7 @@ class Team:
         group = self.svc.roster.group_of(sender)
         with self.core._db() as db:
             recent = [r[0] for r in db.execute('SELECT staff FROM watch_delivery WHERE store=? AND ref IN (SELECT id FROM team_message WHERE store=? AND sender=?) ORDER BY rowid DESC', (self.cfg.store_id, self.cfg.store_id, sender))]
-        rows = [dict(id=s, name=self.cfg.name(s), role=v.get('role', 'nurse'), roles=v.get('roles', []), same_floor=self.svc.roster.group_of(s) == group)
+        rows = [dict(id=s, name=self.cfg.name(s), role=v.get('role', 'nurse'), roles=v.get('roles', []), same_floor=group is not None and self.svc.roster.group_of(s) == group)
                 for s, v in self.cfg.staff.items() if s != sender and v.get('on_duty', True) and self.cfg.watch_of(s) and self.svc._online(s)]
         rows.sort(key=lambda r: (not r['same_floor'], recent.index(r['id']) if r['id'] in recent else 999, r['name']))
         return rows
@@ -97,13 +97,13 @@ class Team:
             floor = self.cfg.rooms.get(h['room'], {}).get('floor')
             candidates = [s for s, v in self.cfg.staff.items() if s != h['sender'] and v.get('on_duty', True) and self.svc._online(s) and self.svc.roster.state(s) == 'available' and (not self.busy(s))]
             if stage == 0:
-                candidates = [s for s in candidates if self.svc.roster.group_of(s) == group]
+                candidates = [s for s in candidates if group is not None and self.svc.roster.group_of(s) == group]
                 locs = {l['staff']: l['room'] for l in self.svc.tele.latest_locations()}
                 distances = p.get('room_distances', {}).get(h['room'], {})
                 candidates.sort(key=lambda s: (0 if locs.get(s) == h['room'] and h['room'] else distances.get(locs.get(s), 1000000), s))
                 candidates = candidates[:1]
             elif stage == 1:
-                candidates = [s for s in candidates if self.svc.roster.group_of(s) == group or (floor is not None and floor in self.cfg.staff[s].get('floors', []))]
+                candidates = [s for s in candidates if (group is not None and self.svc.roster.group_of(s) == group) or (floor is not None and floor in self.cfg.staff[s].get('floors', []))]
             else:
                 lead = self.svc.roster.leaders.get(group)
                 candidates = [lead] if lead and self.svc._online(lead) else []
@@ -121,7 +121,7 @@ class Team:
 
     def busy(self, staff):
         with self.core._db() as db:
-            customer = bool(db.execute("SELECT 1 FROM calls c LEFT JOIN notifications n ON c.id=n.call_id WHERE c.store=? AND c.state IN ('pending','claimed','arrived') AND (c.owner=? OR n.target=?) LIMIT 1", (self.cfg.store_id, staff, staff)).fetchone())
+            customer = bool(db.execute("SELECT 1 FROM calls c LEFT JOIN notifications n ON c.id=n.call_id WHERE c.store=? AND c.state IN ('pending','claimed','arrived') AND (c.owner=? OR (c.state='pending' AND n.target=?)) LIMIT 1", (self.cfg.store_id, staff, staff)).fetchone())
             helping = db.execute("SELECT 1 FROM team_help WHERE store=? AND owner=? AND state='claimed' LIMIT 1", (self.cfg.store_id, staff)).fetchone()
             return customer or bool(helping)
 
@@ -145,6 +145,8 @@ class Team:
             raise WatchError('无全公司群发权限')
         recipients = [s for s, v in self.cfg.staff.items() if s != sender and v.get('on_duty', True) and self.cfg.watch_of(s)]
         if channel == 'floor':
+            if self.svc.roster.group_of(sender) is None:
+                raise WatchError('尚未配置楼层班组')
             recipients = [s for s in recipients if self.svc.roster.group_of(s) == self.svc.roster.group_of(sender)]
         elif channel == 'department':
             dept = self.cfg.staff[sender].get('department')
@@ -197,7 +199,7 @@ class Team:
                 self.svc._send_dispatch(d['ref'], 'station', 'no_device_receipt')
             payload = json.loads(d['payload'])
             if d['kind'] == 'CALL_DISPATCH':
-                payload['status'] = {'claimed': 'accepted'}.get(c['state'], c['state'])
+                payload['status'] = 'pending' if c['proposed_owner'] == d['staff'] and c['owner'] != d['staff'] else {'claimed': 'accepted'}.get(c['state'], c['state'])
             payload['delivery_id'] = d['id']
             payload['binding_id'] = self.svc.watches.context(d['staff'])['binding']['bind_id']
             self.svc.bus.publish(P.t_dispatch_watch(self.cfg.store_id, self.cfg.watch_of(d['staff'])), self.svc._msg(d['kind'], payload, d['ref'] if d['kind'] == 'CALL_DISPATCH' else None))

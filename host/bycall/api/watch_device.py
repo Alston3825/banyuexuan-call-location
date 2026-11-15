@@ -9,7 +9,29 @@ from starlette.concurrency import run_in_threadpool
 from ..core.voice import MAX_BYTES
 
 
-def install(app, svc, voice, staff_history):
+def install(app, svc, voice, staff_history, app_updates=None):
+    def update_device(sn, token):
+        with svc.core._db() as db:
+            w = db.execute('SELECT update_token FROM watch_inventory WHERE store=? AND sn=?', (svc.cfg.store_id, sn)).fetchone()
+        if not w or not token or not hmac.compare_digest(token, w['update_token'] or ''):
+            raise HTTPException(401, 'invalid device update token')
+        if not app_updates:
+            raise HTTPException(503, 'app updates not enabled')
+
+    @app.get('/watch-device/{sn}/update')
+    def update_info(sn: str, x_watch_update: str = Header(default='')):
+        update_device(sn, x_watch_update)
+        info = app_updates.info('watch')
+        return dict(available=bool(info), **(info or {}))
+
+    @app.get('/watch-device/{sn}/download')
+    def update_download(sn: str, x_watch_update: str = Header(default='')):
+        update_device(sn, x_watch_update)
+        path = app_updates.path('watch')
+        if not path:
+            raise HTTPException(404, 'no apk published')
+        return FileResponse(path, media_type='application/vnd.android.package-archive', filename='watch.apk')
+
     def staff_for(sn, token):
         staff = svc.cfg.staff_of_watch(sn)
         if not staff or not svc.cfg.staff[staff].get('on_duty', True):

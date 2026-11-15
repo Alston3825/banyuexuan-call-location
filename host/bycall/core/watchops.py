@@ -38,6 +38,8 @@ class WatchOps:
               staff TEXT, from_sn TEXT, to_sn TEXT, action TEXT, operator TEXT, source TEXT,
               at TEXT, detail TEXT, sync_status TEXT DEFAULT 'LOCAL_PENDING', UNIQUE(store,request_id));
             ''')
+            if 'update_token' not in [r[1] for r in db.execute('PRAGMA table_info(watch_inventory)')]:
+                db.execute('ALTER TABLE watch_inventory ADD COLUMN update_token TEXT')
         self.seed()
 
     @serialized
@@ -54,6 +56,8 @@ class WatchOps:
                 current = db.execute('SELECT sn FROM watch_current WHERE store=? AND staff=?', (self.cfg.store_id, staff)).fetchone()['sn']
                 if current:
                     db.execute("INSERT OR IGNORE INTO watch_inventory(store,sn,state,staff) VALUES(?,?,'BORROWED',?)", (self.cfg.store_id, current, staff))
+            for row in db.execute('SELECT sn FROM watch_inventory WHERE store=? AND update_token IS NULL', (self.cfg.store_id,)).fetchall():
+                db.execute('UPDATE watch_inventory SET update_token=? WHERE store=? AND sn=?', (uuid4().hex + uuid4().hex, self.cfg.store_id, row['sn']))
         self.apply()
 
     def apply(self):
@@ -78,7 +82,7 @@ class WatchOps:
             rooms = [r for r, v in self.cfg.rooms.items() if v.get('floor') in info.get('floors', [])]
         with self.core._db() as db:
             binding = db.execute('SELECT * FROM watch_current WHERE store=? AND staff=?', (self.cfg.store_id, staff)).fetchone()
-            count = db.execute("SELECT count(DISTINCT c.id) FROM calls c LEFT JOIN notifications n ON c.id=n.call_id WHERE c.store=? AND c.state IN ('pending','claimed','arrived') AND (c.owner=? OR n.target=?)", (self.cfg.store_id, staff, staff)).fetchone()[0]
+            count = db.execute("SELECT count(DISTINCT c.id) FROM calls c LEFT JOIN notifications n ON c.id=n.call_id WHERE c.store=? AND c.state IN ('pending','claimed','arrived') AND (c.owner=? OR (c.state='pending' AND n.target=?))", (self.cfg.store_id, staff, staff)).fetchone()[0]
         return dict(staff_id=staff, name=self.cfg.name(staff), binding=dict(binding) if binding else None,
                     schedule_id=info.get('schedule_id'), shift=shift, business_date=day, served_rooms=rooms,
                     on_duty=info.get('on_duty', True), open_events=count)
@@ -87,6 +91,7 @@ class WatchOps:
         devices = {r['device']: r for r in self.svc.tele.devices()}
         out = []
         for r in self.rows('watch_inventory'):
+            r.pop('update_token', None)
             d = devices.get(r['sn'], {})
             r.update(battery=d.get('battery'), online=bool(d.get('online')) and self.fresh(d), wifi_rssi=d.get('wifi_rssi'))
             r['eligible'] = r['state'] == 'IDLE' and not r['staff'] and r['online'] and (r['battery'] or 0) >= self.cfg.watch_policy['borrow_battery'] and self.signal_ok(d)
@@ -219,7 +224,7 @@ class WatchOps:
         recovery = next((r for r in self.rows('watch_current') if r['original'] == sn), None)
         payload = dict(rollback_version=recovery['version'] if recovery else None,
                        directory=self.svc.team.roster(staff) if staff else [],
-                       roles=self.cfg.roles,
+                       roles=self.cfg.roles, update_token=w['update_token'],
                        active_help=self._help_state(staff),
                        state=w['state'], reset_id=w['reset_id'], context=self.context(staff) if staff else None,
                        policy=self.cfg.watch_policy)

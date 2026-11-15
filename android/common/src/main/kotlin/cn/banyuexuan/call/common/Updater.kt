@@ -31,13 +31,14 @@ object Updater {
 
     private fun open(cfg: DeviceConfig, path: String): HttpURLConnection =
         (URL(cfg.apiBase + path).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 5000; readTimeout = 15000; setRequestProperty("X-Api-Key", cfg.apiKey) }
+            connectTimeout = 5000; readTimeout = 15000
+            if (path.startsWith("/watch-device/")) setRequestProperty("X-Watch-Update", cfg["watch_update_token"]) else setRequestProperty("X-Api-Key", cfg.apiKey) }
 
     /** 后台询问主机;有比当前更新的版本时回调 Info,否则回调 null(含网络不通:静默)。回调在主线程。 */
     fun checkAsync(ctx: Context, cfg: DeviceConfig, app: String, cb: (Info?) -> Unit) {
         Thread {
             val info = try {
-                val c = open(cfg, "/app/update?app=$app")
+                val c = open(cfg, if (app == "watch") "/watch-device/${cfg.deviceId}/update" else "/app/update?app=$app")
                 if (c.responseCode != 200) null else {
                     val j = JSONObject(c.inputStream.bufferedReader().readText())
                     if (!j.optBoolean("available") || j.optLong("versionCode") <= installedCode(ctx)) null
@@ -64,7 +65,7 @@ object Updater {
             val f = File(ctx.cacheDir, "update-$app.apk")
             try {
                 say("正在下载 0%")
-                val c = open(cfg, "/app/download/$app").apply { readTimeout = 60000 }
+                val c = open(cfg, if (app == "watch") "/watch-device/${cfg.deviceId}/download" else "/app/download/$app").apply { readTimeout = 60000 }
                 if (c.responseCode != 200) throw IllegalStateException("主机返回 ${c.responseCode}")
                 val md = MessageDigest.getInstance("SHA-256")
                 val total = c.contentLengthLong.takeIf { it > 0 } ?: info.size

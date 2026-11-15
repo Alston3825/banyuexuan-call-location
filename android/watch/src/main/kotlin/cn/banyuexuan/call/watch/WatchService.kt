@@ -50,7 +50,7 @@ class WatchService : Service() {
         @Volatile var fakeReadings: List<Beacons.Reading>? = null
         @Volatile var instance: WatchService? = null
         fun config(ctx: Context) = DeviceConfig(ctx, mapOf("mqtt_host" to "10.0.2.2", "mqtt_port" to "1883",
-            "store_id" to "gx", "device_id" to "w-01", "api_base" to "http://10.0.2.2:8100", "api_key" to "dev-key", "mqtt_password" to "",
+            "store_id" to "gx", "device_id" to "w-01", "api_base" to "http://10.0.2.2:8100", "api_key" to "", "mqtt_password" to "",
             "beacon_uuid" to "", "report_seconds" to "10"))
         private const val CH_SERVICE = "service"
         private const val CH_CALLS = "calls"
@@ -162,6 +162,7 @@ class WatchService : Service() {
             "HELP_STATE" -> WatchState.update {
                 val hid = p.optString("help_id")
                 val status = p.optString("status")
+                if (status == "sent") { pendingHelp = null; getSharedPreferences("watch_employee", MODE_PRIVATE).edit().remove("pending_help").apply() }
                 if (status == "claimed" && p.optString("owner") == WatchState.context?.optString("staff_id")) {
                     WatchState.helps[hid] = p.put("status", "claimed")
                 } else if (status == "claimed" || status == "complete" || status == "cancel") WatchState.helps.remove(hid)
@@ -207,14 +208,31 @@ class WatchService : Service() {
             WatchState.update { WatchState.notice = "网络未连接，请恢复后重试" }
     }
 
+    @Volatile private var pendingHelp: JSONObject? = null
+    private fun flushHelp() {
+        val msg = pendingHelp ?: return
+        val binding = WatchState.context?.optJSONObject("binding")?.optString("bind_id")
+        if (binding != msg.optJSONObject("payload")?.optString("binding_id")) return
+        bus?.publish("${cfg.store}/watch/${cfg.deviceId}", msg)
+    }
+
     fun requestHelp() {
-        watchCommand("HELP_REQUEST")
+        val binding = WatchState.context?.optJSONObject("binding")?.optString("bind_id") ?: return
+        if (pendingHelp == null) {
+            pendingHelp = Proto.envelope(cfg.store, cfg.deviceId, "HELP_REQUEST", JSONObject().put("binding_id", binding))
+            if (!getSharedPreferences("watch_employee", MODE_PRIVATE).edit().putString("binding_id", binding).putString("pending_help", pendingHelp.toString()).commit()) {
+                pendingHelp = null; WatchState.update { WatchState.notice = "求助保存失败，请重试" }; return
+            }
+        }
+        flushHelp()
         pulse(longArrayOf(0, 200))
         WatchState.update { WatchState.helpStatus = "正在发送，等待主机确认" }
     }
 
     private fun applyContext(p: JSONObject) {
         val next = p.optJSONObject("context")
+        cfg["watch_update_token"] = p.optString("update_token")
+        cfg["api_key"] = ""  // 新版腕表不再保存/使用全局管理员 API 密钥。
         val previous = WatchState.context?.optJSONObject("binding")?.optString("bind_id")
         val changed = previous != next?.optJSONObject("binding")?.optString("bind_id")
         val stored = getSharedPreferences("watch_employee", MODE_PRIVATE)
@@ -223,14 +241,16 @@ class WatchService : Service() {
             WatchState.alerts.keys.forEach { getSystemService(NotificationManager::class.java).cancel(it.hashCode()) }
             stopAudio(); WatchState.alerts.clear(); WatchState.messages.clear(); WatchState.helps.clear()
             WatchState.where = "—"; WatchState.helpStatus = ""; window.drain()
-            cacheDir.listFiles()?.forEach { it.deleteRecursively() }
+            val erased = cacheDir.listFiles()?.all { it.deleteRecursively() } ?: true
+            if (!erased) { WatchState.context = null; WatchState.bound = false; WatchState.update { WatchState.notice = "缓存擦除失败，请联系管理员" }; return }
             if (!restore && !stored.edit().clear().commit()) { WatchState.update { WatchState.notice = "本地清空失败，请联系管理员" }; return }
             if (restore) try {
                 val rows = JSONArray(stored.getString("messages", "[]"))
                 for (i in 0 until rows.length()) rows.getJSONObject(i).let { WatchState.messages[it.optString("message_id")] = it }
             } catch (_: Exception) { stored.edit().clear().commit() }
         }
-        // 员工数据只保存在内存；设备 MQTT/API 凭据属于硬件，不随员工迁移或擦除。
+        pendingHelp = if (restore) try { stored.getString("pending_help", null)?.let { JSONObject(it) } } catch (_: Exception) { null } else null
+        // 员工消息按绑定保存在私有缓存，换出清空；MQTT 和只读升级凭据属于硬件。
         WatchState.directory = p.optJSONArray("directory") ?: JSONArray()
         WatchState.roles = p.optJSONObject("roles") ?: JSONObject()
         WatchState.rollbackVersion = if (p.isNull("rollback_version")) null else p.optInt("rollback_version")
@@ -245,6 +265,7 @@ class WatchService : Service() {
         if (p.optString("state") == "RESETTING") {
             watchCommand("WATCH_RESET_ACK", JSONObject().put("reset_id", p.optString("reset_id")))
         }
+        flushHelp()
         WatchState.update { }
     }
 
@@ -360,6 +381,7 @@ class WatchService : Service() {
 
     private var lastBatteryAt = 0L
     private fun heartbeat() {
+        flushHelp()
         // 用系统电量广播(粘性)读取:比 BATTERY_PROPERTY_CAPACITY 在各厂家系统上更可靠
         val i = registerReceiver(null, android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
         val scale = i?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100

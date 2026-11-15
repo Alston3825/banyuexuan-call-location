@@ -130,7 +130,7 @@ class HostService:
             self.team.enqueue(target, P.CALL_DISPATCH, call_id, payload)
             if reason == 'resync':
                 with self.core._db() as db:
-                    db.execute("UPDATE watch_delivery SET received=NULL,sent=NULL WHERE store=? AND staff=? AND kind='CALL_DISPATCH' AND ref=?", (self.cfg.store_id, target, call_id))
+                    db.execute("UPDATE watch_delivery SET received=NULL,sent=NULL,attempts=0 WHERE store=? AND staff=? AND kind='CALL_DISPATCH' AND ref=?", (self.cfg.store_id, target, call_id))
             self.team.flush()
 
     def _state_to_watch(self, staff, call_id, status):
@@ -237,7 +237,6 @@ class HostService:
         if env.type == 'WATCH_RECEIVED':
             self.team.receipt(env.device_id, p.get('delivery_id'))
         elif env.type == 'WATCH_ROLLBACK':
-            ctx = self.watches.context(staff)
             self.watches.change(staff=staff, action='ROLLBACK', expected_version=p.get('version'),
                                 request_id=env.msg_id, operator=staff, source='WATCH_BUTTON')
         elif env.type == 'HELP_REQUEST':

@@ -239,8 +239,9 @@ function tick() {
 }
 function render(s) {
   const helps = s.helps || [];
-  $('helpwarn').style.display = helps.length ? 'block' : 'none';
+  $('helpwarn').style.display = helps.length || (s.delivery_alerts || []).length ? 'block' : 'none';
   $('helpwarn').textContent = helps.map(h => '同事求助：' + h.name + ' · ' + (h.room || '位置未知') + ' · ' + (h.owner_name ? h.owner_name + '已响应' : h.stage >= 2 ? '无人响应，请护士长处理' : '等待响应')).join('；');
+  $('helpwarn').textContent += (s.delivery_alerts || []).map(d => ' 呼叫未收到设备回执：' + d.staff + '，请护士站核实').join('；');
   snap = s;
   $('store').textContent = s.store_id;
   const hw = $('hostwarn'), hp = (s.host && s.host.problems) || [];

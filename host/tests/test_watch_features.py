@@ -13,7 +13,7 @@ from bycall.core.watchops import WatchError
 from tests.test_service import Base, S
 
 
-class TestBinding(Base):
+class BindingFixture(Base):
     def setUp(self):
         super().setUp()
         self.svc.cfg.watches['spare'] = dict(mac='test-mac')
@@ -40,6 +40,8 @@ class TestBinding(Base):
             p['binding_id'] = self.svc.watches.context(staff)['binding']['bind_id']
         self.send(f'{S}/watch/{watch}', watch, kind, p, msg_id=mid)
 
+
+class TestBinding(BindingFixture):
     def test_swap_migrates_open_owned_call_and_rejects_old_device(self):
         cid = self.call()
         self.accept('w-01', cid)
@@ -119,7 +121,7 @@ class TestBinding(Base):
         self.assertEqual(response.json()['operator'], '护士站甲')
 
 
-class TestTeam(TestBinding):
+class TestTeam(BindingFixture):
     def test_help_first_claim_wins_and_others_receive_withdrawal(self):
         self.online('w-03')
         self.command('w-01', 'HELP_REQUEST', mid='help')
@@ -236,3 +238,49 @@ class TestTeam(TestBinding):
         with self.svc.core._db() as db:
             row = db.execute('SELECT * FROM battery_samples').fetchone()
             self.assertEqual((row['staff'], row['watch'], row['battery']), ('n01', 'w-01', 80))
+
+
+    def test_readonly_update_token_does_not_grant_employee_or_admin_access(self):
+        from bycall.core.appupdate import AppUpdates
+        app = create_app(self.svc, VoiceStore(os.path.join(self.tmp.name, 'v-update')), api_key='admin', app_updates=AppUpdates(os.path.join(self.tmp.name, 'apk')))
+        client = TestClient(app)
+        token = next(w for w in self.svc.watches.rows('watch_inventory') if w['sn'] == 'spare')['update_token']
+        self.assertEqual(client.get('/watch-device/spare/update', headers={'x-watch-update':token}).json(), {'available':False})
+        self.assertEqual(client.get('/watch-device/w-01/update', headers={'x-watch-update':token}).status_code, 401)
+        self.assertEqual(client.get('/watch-device/w-01/history', headers={'x-watch-binding':token}).status_code, 401)
+        self.assertEqual(client.get('/watch-admin/snapshot', headers={'x-watch-update':token}).status_code, 401)
+
+    def test_undo_last_swap_preserves_original_return_chain(self):
+        self.svc.cfg.watches['spare2'] = {}
+        self.svc.watches.seed()
+        self.svc.tele.heartbeat('spare2', self.clock().isoformat(), 95, -50)
+        self.svc.watches.reset('spare2', 'admin'); self.ack_reset('spare2')
+        self.change()
+        self.change(target='spare2', expected_version=1, request_id='second')
+        self.change(action='UNDO', expected_version=2, request_id='undo')
+        current = self.svc.watches.context('n01')['binding']
+        self.assertEqual((current['sn'],current['original']), ('spare','w-01'))
+
+
+    def test_transfer_delivery_still_offers_claim_action(self):
+        cid = self.call(); self.accept('w-01', cid)
+        self.send(f'{S}/ack/{cid}', 'w-01', 'CALL_TRANSFER', dict(target='n02'), call_id=cid)
+        self.assertEqual(self.bus.sent(f'{S}/dispatch/w-02', 'CALL_DISPATCH')[-1]['payload']['status'], 'pending')
+
+    def test_missing_receipts_escalate_and_are_visible_at_station(self):
+        self.call()
+        for _ in range(4):
+            self.clock.advance(4); self.svc.tick()
+        client = TestClient(create_app(self.svc, VoiceStore(os.path.join(self.tmp.name, 'v')), api_key='k'))
+        s = client.get('/station/snapshot', headers={'x-api-key':'k'}).json()
+        self.assertTrue(s['delivery_alerts'])
+        self.assertTrue(self.bus.sent(f'{S}/dispatch/w-02', 'CALL_DISPATCH'))
+
+
+    def test_call_taken_by_colleague_does_not_block_my_messages(self):
+        cid = self.call()
+        self.clock.advance(16); self.svc.tick()
+        self.accept('w-02', cid)
+        self.assertFalse(self.svc.team.busy('n01'))
+        self.assertEqual(self.svc.watches.context('n01')['open_events'], 0)
+        self.assertTrue(self.svc.team.busy('n02'))

@@ -202,7 +202,9 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
         for h in helps:
             h['name'] = cfg.name(h['sender'])
             h['owner_name'] = cfg.name(h['owner']) if h['owner'] else None
-        return dict(helps=helps, store_id=cfg.store_id, now=svc._now().isoformat(), active=active, recent=done[:recent],
+        with svc.core._db() as db:
+            delivery_alerts = [dict(r) for r in db.execute("SELECT staff,ref,attempts FROM watch_delivery WHERE store=? AND kind='CALL_DISPATCH' AND received IS NULL AND attempts>=3 AND ref IN (SELECT id FROM calls WHERE state IN ('pending','claimed','arrived'))", (store,))]
+        return dict(delivery_alerts=delivery_alerts, helps=helps, store_id=cfg.store_id, now=svc._now().isoformat(), active=active, recent=done[:recent],
                     nurses=nurses, rooms=rooms,
                     host=host_status.snapshot() if host_status else None, version=VERSION)
 
@@ -271,7 +273,7 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
             return history_items(db, rows)
 
     from .watch_device import install as install_watch_device
-    install_watch_device(app, svc, voice, staff_history)
+    install_watch_device(app, svc, voice, staff_history, app_updates)
 
     @app.get('/watches/{watch}/history', dependencies=[Depends(auth)])
     def watch_history(watch: str, days: int = 30, limit: int = 100):
