@@ -27,6 +27,8 @@ class Telemetry:
             for column in ('store', 'binding'):
                 if column not in [r[1] for r in db.execute('PRAGMA table_info(locations)')]:
                     db.execute(f'ALTER TABLE locations ADD COLUMN {column} TEXT')
+            db.execute('CREATE INDEX IF NOT EXISTS location_store_time ON locations(store,at,id)')
+            db.execute('CREATE INDEX IF NOT EXISTS location_staff_time ON locations(store,staff,at,id)')
             db.commit()
 
     def _run(self, sql, args=()):

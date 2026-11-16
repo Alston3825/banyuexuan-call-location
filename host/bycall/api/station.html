@@ -59,8 +59,9 @@ section h2 b{color:var(--text);font-size:22px}
 #err{display:none;background:var(--bad);color:#fff;text-align:center;padding:6px;font-weight:600}
 @media (max-width:900px){main{grid-template-columns:1fr;overflow:auto}body{overflow:auto;height:auto}}
 
-#nurses{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:minmax(48px,1fr);gap:5px;padding:7px;flex:1;overflow:auto}
-.watch-tile{border:1px solid #33465c;border-left:4px solid var(--ok);border-radius:6px;padding:4px 6px;min-width:0;background:#132a27;font-size:12px;line-height:1.25;overflow:hidden}
+#nurses{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:minmax(44px,1fr);gap:4px;padding:7px;flex:1;overflow:auto}
+.watch-tile{border:1px solid #33465c;border-left:4px solid var(--ok);border-radius:6px;padding:2px 5px;min-width:0;background:#132a27;font-size:12px;line-height:1.1;overflow:hidden}
+.watch-tile:not(.offline):not(.unknown):not(.empty) .watch-time{color:var(--ok)}
 .watch-tile.offline{border-left-color:var(--bad);background:#3a2028}.watch-tile.unknown{border-left-color:var(--warn);background:#332d20}.watch-tile.empty{border-left-color:#435263;background:#15202c;color:var(--mute);padding:4px 6px;text-align:left}
 .watch-tile strong,.watch-tile small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.watch-tile strong{font-size:13px}.watch-time{font-variant-numeric:tabular-nums;color:#ffb5ae}.watch-tile.unknown .watch-time{color:var(--warn)}
 #nurses-panel h2{padding:7px 10px}#rooms{max-height:65px;overflow:auto;padding:5px;font-size:11px}.watch-tools{display:flex;gap:8px;font-size:12px;padding:4px 10px;flex-wrap:wrap}
@@ -91,7 +92,7 @@ dialog input{font:inherit;padding:8px;width:100%;box-sizing:border-box}dialog la
   </div>
   <section id="nurses-panel">
     <h2>智能手表在线状态 <b id="n-nurse">0</b></h2>
-    <div class="watch-tools"><span>绿色在线 · 红色离线 · 黄色未观测</span><button id="presence-report">每日统计 / 导出</button></div>
+    <div class="watch-tools"><span>绿在线 · 红离线 · 黄未观测 · 时:分:秒</span><button id="presence-report">每日统计 / 导出</button></div>
     <div class="body" id="nurses"></div>
     <div class="rooms" id="rooms"></div>
   </section>
@@ -139,7 +140,6 @@ function getKey() {
   try { return sessionKey || localStorage.getItem('bycall_key') || ''; } catch (e) { return ''; }
 }
 let sessionKey = '';
-function apiBase(){return location.origin;}
 function askKey() {
   $('cfg-host').value = location.origin; $('cfg-key').value = getKey();
   $('cfg-remember').checked = !!localStorage.getItem('bycall_key');
@@ -158,9 +158,10 @@ $('cfg-save').onclick=()=>{
   }catch(e){$('cfg-error').textContent=e.message;}
 };
 let presenceReport=null;
-$('presence-report').onclick=()=>{const d=new Date(Date.now()+8*3600000).toISOString().slice(0,10);$('p-start').value=d;$('p-end').value=d;$('presence-dlg').showModal();};
+['p-start','p-end','p-watch','p-staff'].forEach(id=>$(id).oninput=()=>{presenceReport=null;});
+$('presence-report').onclick=()=>{const d=new Date(Date.now()+skew+8*3600000).toISOString().slice(0,10);$('p-start').value=d;$('p-end').value=d;$('presence-dlg').showModal();};
 $('p-close').onclick=()=>$('presence-dlg').close();
-$('p-load').onclick=async()=>{try{presenceReport=null;const q=new URLSearchParams({start:$('p-start').value,end:$('p-end').value});if($('p-watch').value.trim())q.set('watch',$('p-watch').value.trim());if($('p-staff').value.trim())q.set('staff',$('p-staff').value.trim());presenceReport=await getJson('/station/watch-presence?'+q);$('p-results').textContent=presenceReport.summary.map(r=>`${r.date}  ${r.watch}  ${r.name} (${r.staff||'未绑定'})\n在线 ${fmtDur(r.online_seconds*1000)} · 离线 ${fmtDur(r.offline_seconds*1000)} · 未观测 ${fmtDur(r.unknown_seconds*1000)} · 离线区间 ${r.offline_intervals}\n`).join('\n')||'该范围暂无观测记录';}catch(e){$('p-results').textContent='查询失败：'+e.message;}};
+$('p-load').onclick=async()=>{try{presenceReport=null;const q=new URLSearchParams({start:$('p-start').value,end:$('p-end').value});if($('p-watch').value.trim())q.set('watch',$('p-watch').value.trim());if($('p-staff').value.trim())q.set('staff',$('p-staff').value.trim());presenceReport=await getJson('/station/watch-presence?'+q);$('p-results').textContent=presenceReport.summary.map(r=>`${r.date}  ${r.watch}  ${r.name} (${r.staff||'未绑定'})\n在线 ${fmtPresence(r.online_seconds*1000)} · 离线 ${fmtPresence(r.offline_seconds*1000)} · 未观测 ${fmtPresence(r.unknown_seconds*1000)} · 离线区间 ${r.offline_intervals}\n`).join('\n')||'该范围暂无观测记录';}catch(e){$('p-results').textContent='查询失败：'+e.message;}};
 $('p-export').onclick=()=>{if(!presenceReport){$('p-results').textContent='请先查询';return;}const u=URL.createObjectURL(new Blob([JSON.stringify(presenceReport,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=u;a.download='watch-presence-'+$('p-start').value+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);};
 $('snd').onclick = () => {
   ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
@@ -334,10 +335,11 @@ function render(s) {
   }
   seen = ids;
 }
+function fmtPresence(ms){const total=Math.max(0,Math.floor(ms/1000)),days=Math.floor(total/86400),h=Math.floor(total%86400/3600),m=Math.floor(total%3600/60),s=total%60;return (days?days+'天 ':'')+[h,m,s].map(v=>String(v).padStart(2,'0')).join(':');}
 function updateWatchTimers(){
   document.querySelectorAll('[data-presence-state]').forEach(e=>{
     const ms=Math.max(0,Date.now()+skew-Date.parse(e.dataset.since));
-    e.textContent=(e.dataset.presenceState==='OFFLINE'?'● 离线 ':'◐ 未观测 ')+fmtDur(ms);
+    e.textContent=(e.dataset.presenceState==='OFFLINE'?'● 离线 ':'◐ 未观测 ')+fmtPresence(ms);
   });
 }
 setInterval(updateWatchTimers,1000);
