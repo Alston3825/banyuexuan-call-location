@@ -204,7 +204,7 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
             h['owner_name'] = cfg.name(h['owner']) if h['owner'] else None
         with svc.core._db() as db:
             delivery_alerts = [dict(r) for r in db.execute("SELECT staff,ref,attempts FROM watch_delivery WHERE store=? AND kind='CALL_DISPATCH' AND received IS NULL AND attempts>=3 AND ref IN (SELECT id FROM calls WHERE state IN ('pending','claimed','arrived'))", (store,))]
-        return dict(delivery_alerts=delivery_alerts, helps=helps, store_id=cfg.store_id, now=svc._now().isoformat(), active=active, recent=done[:recent],
+        return dict(watches=svc.presence.snapshot(), watch_slots=max(40, len(svc.presence.known())), delivery_alerts=delivery_alerts, helps=helps, store_id=cfg.store_id, now=svc._now().isoformat(), active=active, recent=done[:recent],
                     nurses=nurses, rooms=rooms,
                     host=host_status.snapshot() if host_status else None, version=VERSION)
 
@@ -236,6 +236,37 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
             return svc.set_routing(body)
         except RoutingError as e:
             raise HTTPException(400, str(e))
+
+    @app.get('/station/watch-activity', dependencies=[Depends(auth)])
+    def watch_activity(start: str, end: str, watch: Optional[str] = None, staff: Optional[str] = None, after: int = 0, limit: int = 1000):
+        from datetime import date, datetime, time, timezone
+        from ..core.presence import TZ
+        try:
+            first, last = date.fromisoformat(start), date.fromisoformat(end)
+            if last < first or (last-first).days > 30 or after < 0 or not 1 <= limit <= 2000:
+                raise ValueError('日期范围 1–31 天，limit 为 1–2000，after 不得为负')
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        lo = datetime.combine(first, time(), TZ).astimezone(timezone.utc).isoformat()
+        hi = datetime.combine(last + timedelta(days=1), time(), TZ).astimezone(timezone.utc).isoformat()
+        sql = 'SELECT * FROM locations WHERE store=? AND at>=? AND at<? AND id>?'
+        args = [store, lo, hi, after]
+        if watch:
+            sql += ' AND watch=?'; args.append(watch)
+        if staff:
+            sql += ' AND staff=?'; args.append(staff)
+        with svc.core._db() as db:
+            rows = [dict(r) for r in db.execute(sql+' ORDER BY id LIMIT ?', (*args, limit+1))]
+        return dict(store_id=store, timezone='Asia/Shanghai', items=rows[:limit], has_more=len(rows)>limit, next_after=rows[:limit][-1]['id'] if rows else after,
+                    note='仅为 BLE 推测区域采样，不能填补无观测时段，也不等于人工确认到场。')
+
+    @app.get('/station/watch-presence', dependencies=[Depends(auth)])
+    def watch_presence(start: str, end: str, watch: Optional[str] = None, staff: Optional[str] = None):
+        from datetime import date
+        try:
+            return svc.presence.daily(date.fromisoformat(start), date.fromisoformat(end), watch, staff)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
 
     @app.get('/devices', dependencies=[Depends(auth)])
     def devices():

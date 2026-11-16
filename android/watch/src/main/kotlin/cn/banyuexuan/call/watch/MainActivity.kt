@@ -112,7 +112,11 @@ class MainActivity : Activity() {
             text = (if (WatchState.connected) "● 已连接" else "○ 未连接") + "   ${cfg.deviceId}\n位置:${WatchState.where}"
             setTextColor(if (WatchState.connected) Color.parseColor("#1b7f3b") else Color.parseColor("#c0392b"))
             setOnLongClickListener { showSettings(); true } }
-        box.addView(head)
+        box.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            addView(head, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(Button(context).apply { text = "设置"; textSize = 15f; minWidth = 0; minimumWidth = 0; setPadding(dp(5), 0, dp(5), 0); setOnClickListener { showSettings() } }, LinearLayout.LayoutParams(dp(60), dp(48)))
+        })
         updInfo?.let { u -> box.addView(TextView(this).apply {          // 有新版本:蓝色方块,点一下更新
             text = updText ?: "发现新版本 ${u.name}\n点击更新"; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE)
             gravity = Gravity.CENTER; background = bg("#2f6fdb"); setPadding(dp(12), dp(14), dp(12), dp(14))

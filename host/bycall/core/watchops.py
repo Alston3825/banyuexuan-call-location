@@ -167,6 +167,8 @@ class WatchOps:
                 db.execute('INSERT INTO watch_operations(store,request_id,digest,staff,from_sn,to_sn,action,operator,source,at,detail) VALUES(?,?,?,?,?,?,?,?,?,?,?)', (self.cfg.store_id, request_id, digest, staff, b['sn'], target, action, operator, source, self.svc._now().isoformat(), detail))
                 result = dict(db.execute('SELECT * FROM watch_operations WHERE store=? AND request_id=?', (self.cfg.store_id, request_id)).fetchone())
         self.apply()
+        if hasattr(self.svc, 'presence'):
+            self.svc.presence.tick()
         for sn in (result['from_sn'], result['to_sn']):
             if sn:
                 self.send_context(sn)

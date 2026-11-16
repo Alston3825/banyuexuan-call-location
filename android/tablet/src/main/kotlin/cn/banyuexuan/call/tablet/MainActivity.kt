@@ -200,7 +200,11 @@ class MainActivity : Activity() {
         cancelBtn = Button(this).apply { text = "取消本次呼叫"; textSize = 18f; visibility = View.GONE; setOnClickListener { ctl?.cancel(); PressFx.confirm(this) }; PressFx.attach(this) }
         updBar = TextView(this).apply { textSize = 16f; setTextColor(Color.WHITE); background = bg("#e08a1e"); visibility = View.GONE
             setPadding(dp(12), dp(8), dp(12), dp(8)); setOnLongClickListener { confirmUpdate(); true } }
-        root.addView(title); root.addView(updBar, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) }); root.addView(receipt, LinearLayout.LayoutParams(-1, dp(76)).apply { topMargin = dp(6) }); root.addView(steps)
+        root.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            addView(title, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(Button(context).apply { text = "⚙ 连接设置"; textSize = 16f; setOnClickListener { showSettings() } }, LinearLayout.LayoutParams(-2, dp(52)))
+        }); root.addView(updBar, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) }); root.addView(receipt, LinearLayout.LayoutParams(-1, dp(76)).apply { topMargin = dp(6) }); root.addView(steps)
         root.addView(grid, LinearLayout.LayoutParams(-1, -2))
         root.addView(meter, LinearLayout.LayoutParams(-1, dp(40)).apply { topMargin = dp(6) })
         root.addView(voiceBtn, LinearLayout.LayoutParams(-1, dp(72)).apply { topMargin = dp(2); leftMargin = dp(7); rightMargin = dp(7) })

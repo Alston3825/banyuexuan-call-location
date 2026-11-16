@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime
 from contextlib import closing
 
 
@@ -23,6 +24,9 @@ class Telemetry:
             db.execute("CREATE TABLE IF NOT EXISTS battery_samples(id INTEGER PRIMARY KEY AUTOINCREMENT, store TEXT, staff TEXT, watch TEXT, at TEXT, battery INTEGER, charging INTEGER)")
             if 'charging' not in [r[1] for r in db.execute('PRAGMA table_info(device_status)')]:
                 db.execute('ALTER TABLE device_status ADD COLUMN charging INTEGER')    # 老库升级
+            for column in ('store', 'binding'):
+                if column not in [r[1] for r in db.execute('PRAGMA table_info(locations)')]:
+                    db.execute(f'ALTER TABLE locations ADD COLUMN {column} TEXT')
             db.commit()
 
     def _run(self, sql, args=()):
@@ -46,13 +50,13 @@ class Telemetry:
     def devices(self):
         return self._run('SELECT * FROM device_status ORDER BY device')
 
-    def add_location(self, watch, staff, fix, at):
-        last = self._run('SELECT beacon FROM locations WHERE watch=? ORDER BY id DESC LIMIT 1', (watch,))
-        if last and last[0]['beacon'] == (fix or {}).get('beacon'):
+    def add_location(self, watch, staff, fix, at, store=None, binding=None):
+        last = self._run('SELECT beacon,staff,binding,at FROM locations WHERE watch=? ORDER BY id DESC LIMIT 1', (watch,))
+        if last and last[0]['beacon'] == (fix or {}).get('beacon') and last[0]['staff'] == staff and last[0]['binding'] == binding and (datetime.fromisoformat(at) - datetime.fromisoformat(last[0]['at'])).total_seconds() < 60:
             return False
-        self._run('INSERT INTO locations(watch,staff,beacon,area,room,at) VALUES(?,?,?,?,?,?)',
+        self._run('INSERT INTO locations(watch,staff,beacon,area,room,at,store,binding) VALUES(?,?,?,?,?,?,?,?)',
                   (watch, staff, (fix or {}).get('beacon'), (fix or {}).get('area'),
-                   (fix or {}).get('room'), at))
+                   (fix or {}).get('room'), at, store, binding))
         return True
 
     def latest_locations(self):

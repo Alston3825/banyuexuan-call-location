@@ -48,6 +48,8 @@ class HostService:
         from .team import Team
         self.watches = WatchOps(self)
         self.team = Team(self)
+        from .presence import Presence
+        self.presence = Presence(self)
         self.rejected_count = 0
         self._seen = OrderedDict()
         self._cursor = 0
@@ -164,6 +166,7 @@ class HostService:
     def tick(self):
         now = self._now()
         self.watches.apply()
+        self.presence.tick()
         for dev in self.tele.stale_online((now - timedelta(seconds=self.cfg.watch_policy['offline_seconds'])).isoformat()):
             self.tele.set_online(dev, False, now.isoformat())
             s = self.cfg.staff_of_watch(dev)
@@ -419,6 +422,7 @@ class HostService:
         if self.cfg.room_of_tablet(env.device_id) and self.cfg.request_types \
                 and p.cfg_ver != self.tablet_config(env.device_id)['ver']:
             self._send_config(env.device_id)        # 按钮列表变了或平板还没有,30 秒内自动更新
+        self.presence.observe(env.device_id)
         self.tele.heartbeat(env.device_id, self._now().isoformat(), p.battery, p.wifi_rssi, p.charging)
         if p.battery is not None and p.battery >= self.cfg.watch_policy['borrow_battery']:
             with self.core._db() as db:
@@ -438,6 +442,7 @@ class HostService:
 
     def _h_status(self, env):
         online = bool(env.payload.get('online'))
+        self.presence.observe(env.device_id, online, 'mqtt_status' if online else 'mqtt_disconnect')
         self.tele.set_online(env.device_id, online, self._now().isoformat())
         if online and self.cfg.room_of_tablet(env.device_id) and self.cfg.request_types:
             self._send_config(env.device_id)
@@ -457,7 +462,7 @@ class HostService:
             return self._reject(env, 'unknown_device')
         p = P.LocationPayload(**env.payload)
         fix = self.locator.update(env.device_id, [r.model_dump() for r in p.readings])
-        self.tele.add_location(env.device_id, staff, fix, self._now().isoformat())
+        self.tele.add_location(env.device_id, staff, fix, self._now().isoformat(), self.cfg.store_id, self.watches.context(staff)['binding']['bind_id'])
         if fix and fix['room']:
             for call_id, room, state in self._active_calls(staff):
                 if state == 'claimed' and room == fix['room']:
