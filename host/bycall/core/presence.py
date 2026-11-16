@@ -33,7 +33,8 @@ class Presence:
 
     def _identity(self, watch):
         staff = self.svc.cfg.staff_of_watch(watch)
-        binding = self.svc.watches.context(staff)['binding'] if staff else None
+        with self.core._db() as db:
+            binding = db.execute('SELECT bind_id FROM watch_current WHERE store=? AND staff=? AND sn=?', (self.store, staff, watch)).fetchone() if staff else None
         return staff, binding['bind_id'] if binding else None
 
     def _transition(self, db, watch, state, at, staff, binding, reason):
@@ -56,7 +57,7 @@ class Presence:
         row = db.execute('SELECT * FROM watch_presence WHERE store=? AND watch=?', (self.store, watch)).fetchone()
         if row and row['state'] == 'ONLINE' and row['last_seen']:
             deadline = datetime.fromisoformat(row['last_seen']) + timedelta(seconds=self.svc.cfg.watch_policy['offline_seconds'])
-            if deadline <= now:
+            if deadline < now:
                 self._transition(db, watch, 'OFFLINE', deadline.isoformat(), row['staff'], row['binding'], 'heartbeat_timeout')
 
     @serialized
