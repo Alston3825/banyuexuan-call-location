@@ -4,6 +4,7 @@ import io
 import json
 import os
 import sqlite3
+import socket
 import stat
 import sys
 import tarfile
@@ -137,8 +138,8 @@ class DeployTests(unittest.TestCase):
         (project/'.env').write_text('unchanged-env')
         (project/'docker-compose.yml').write_text('services: {}')
         data=project/'data';data.mkdir();db=sqlite3.connect(data/'host.db');db.execute('CREATE TABLE x(v)');db.execute('INSERT INTO x VALUES(7)');db.commit();db.close()
-        old=dict(Image='sha256:old',State=dict(Running=True),Mounts=[dict(Source=str(data),Destination='/data',Type='bind')])
-        config=dict(services=dict(host=dict(image='bycall-host:test',environment={})))
+        old=dict(Image='sha256:old',State=dict(Running=True),Mounts=[dict(Source=str(data),Destination='/data',Type='bind')],Config=dict(Labels={'com.docker.compose.project':'bycall','com.docker.compose.service':'host','com.docker.compose.project.working_dir':str(project)}))
+        config=dict(name='bycall',services=dict(host=dict(image='bycall-host:test',environment={})))
         ops=[]
         def compose(p,*args,**kw):
             ops.append(args)
@@ -158,3 +159,60 @@ class DeployTests(unittest.TestCase):
         self.assertEqual((project/'.env').read_text(),'unchanged-env')
         db=sqlite3.connect(data/'host.db');self.assertEqual(db.execute('SELECT v FROM x').fetchone()[0],7);db.close()
         self.assertTrue((project/'upgrade-backups'/self.meta['version']/'host.db').exists())
+
+
+    def test_initialize_project_consistent_before_and_after_env(self):
+        project=self.root/'fresh';project.mkdir()
+        (project/'docker-compose.yml').write_text('services: {}')
+        (project/'config').mkdir();(project/'config/store.json').write_text('{}')
+        (project/'mosquitto/auth').mkdir(parents=True)
+        (project/'mosquitto/auth/credentials.json').write_text(json.dumps({'host':'not-real'}))
+        config=dict(name='bycall',services=dict(host=dict(image='bycall-host:test',environment={},volumes=[dict(type='bind',target='/data',source=str(project/'data'))])))
+        calls=[]
+        def compose(p,*args,**kw):
+            calls.append((args,kw))
+            if args[:2]==('config','--format'):return json.dumps(config)
+            if args[:2]==('ps','-q'):
+                # 重现原故障：项目名没指定或使用 host 时会看到无关容器。
+                return '' if kw.get('project_name')=='bycall' else 'foreign-host'
+            return ''
+        def run(args,**kw):
+            if args[:3]==['docker','image','inspect']:return json.dumps([{'Id':'sha256:base'}])
+            if 'requirements.txt' in str(args):return hashlib.sha256(b'test-dependency\n').hexdigest()
+            if 'bycall.version' in str(args):return 'old-version'
+            return ''
+        with patch.object(self.remote,'compose',side_effect=compose),patch.object(self.remote,'run',side_effect=run),patch.object(self.remote,'inspect') as inspected,patch.object(self.remote,'wait_health',return_value=True) as health,patch.object(self.remote.platform,'machine',return_value='x86_64'),patch.object(self.remote.os,'geteuid',return_value=0):
+            self.remote.apply(project,self.archive,self.digest,initialize=True,bind_ip='127.0.0.1')
+        inspected.assert_not_called()
+        self.assertTrue(calls)
+        self.assertTrue(all(kw.get('project_name')=='bycall' for _,kw in calls))
+        health.assert_called_once_with(project,self.meta['version'],project_name='bycall')
+        self.assertIn('COMPOSE_PROJECT_NAME=bycall',(project/'.env').read_text())
+
+    def test_compose_explicit_project_argument(self):
+        with patch.object(self.remote,'run',return_value='') as invoked:
+            self.remote.compose(self.root,'ps','-q','host',project_name='bycall')
+        argv=invoked.call_args.args[0]
+        self.assertEqual(argv[argv.index('--project-name')+1],'bycall')
+
+    def test_foreign_ownership_and_oneoff_rejected(self):
+        project=self.root/'project'
+        labels={'com.docker.compose.project':'bycall','com.docker.compose.service':'host','com.docker.compose.project.working_dir':str(project)}
+        self.remote.validate_owner({'Config':{'Labels':labels}},project,'bycall')
+        for key,value in [('com.docker.compose.project','host'),('com.docker.compose.project.working_dir','/elsewhere'),('com.docker.compose.oneoff','True')]:
+            changed=dict(labels);changed[key]=value
+            with self.assertRaises(self.remote.DeployError):
+                self.remote.validate_owner({'Config':{'Labels':changed}},project,'bycall')
+
+    def test_first_install_refuses_existing_database(self):
+        data=self.root/'existing-data';data.mkdir();(data/'host.db').write_bytes(b'existing')
+        config={'services':{'host':{'volumes':[{'type':'bind','source':str(data),'target':'/data'}]}}}
+        with self.assertRaises(self.remote.DeployError):self.remote.check_first_install(config,'127.0.0.1')
+        self.assertEqual((data/'host.db').read_bytes(),b'existing')
+
+    def test_first_install_refuses_busy_port(self):
+        data=self.root/'empty-data';data.mkdir()
+        with socket.socket() as listener:
+            listener.bind(('127.0.0.1',0));port=listener.getsockname()[1]
+            config={'services':{'host':{'volumes':[{'type':'bind','source':str(data),'target':'/data'}],'ports':[{'published':str(port),'protocol':'tcp'}]}}}
+            with self.assertRaises(self.remote.DeployError):self.remote.check_first_install(config,'127.0.0.1')

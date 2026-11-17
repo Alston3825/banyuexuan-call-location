@@ -9,6 +9,7 @@ import platform
 import re
 import secrets
 import shutil
+import socket
 import sqlite3
 import subprocess
 import tarfile
@@ -36,8 +37,45 @@ def sha(path):
     return h.hexdigest()
 
 
-def compose(project, *args, capture=True):
-    return run(['docker', 'compose', '--project-directory', project, *args], timeout=300, capture=capture)
+def compose(project, *args, capture=True, project_name=None):
+    command=['docker','compose','--project-directory',project]
+    if project_name:
+        command+=['--project-name',project_name]
+    return run(command+list(args),timeout=300,capture=capture)
+
+
+def validate_owner(container, project, project_name):
+    labels=container.get('Config',{}).get('Labels') or {}
+    if labels.get('com.docker.compose.project')!=project_name or labels.get('com.docker.compose.service')!='host':
+        raise DeployError('容器不属于目标项目的 host 服务，未操作')
+    directory=labels.get('com.docker.compose.project.working_dir')
+    if not directory or Path(directory).resolve()!=project.resolve():
+        raise DeployError('容器所属目录与安装目录不同，未操作')
+    if str(labels.get('com.docker.compose.oneoff','false')).lower()=='true':
+        raise DeployError('检测到一次性任务容器，不能当作主机服务升级')
+
+
+def check_first_install(config, bind_ip):
+    import ipaddress
+    ipaddress.IPv4Address(bind_ip)
+    host=config['services']['host']
+    sources=[Path(v['source']) for v in host.get('volumes',[]) if v.get('type')=='bind' and v.get('target')=='/data']
+    if len(sources)!=1:
+        raise DeployError('无法确认首次安装的数据目录，未初始化')
+    db=sources[0]/'host.db'
+    if db.exists() and db.stat().st_size:
+        raise DeployError('已有数据库但没有 .env，需要核对并恢复配置，不能首次初始化')
+    for service in config['services'].values():
+        for port in service.get('ports',[]):
+            if port.get('protocol','tcp')!='tcp' or not port.get('published'):
+                continue
+            number=int(port['published'])
+            try:
+                with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as probe:
+                    probe.bind((bind_ip,number))
+            except OSError as e:
+                raise DeployError('首次安装端口不可用：'+bind_ip+':'+str(number)+'；请先核对原有服务，未修改配置') from e
+
 
 
 def inspect(cid):
@@ -109,12 +147,12 @@ def initialize_env(project, bind_ip):
         f.write('\n'.join(k+'='+v for k,v in settings.items())+'\n')
 
 
-def wait_health(project, version, seconds=90):
+def wait_health(project, version, seconds=90, project_name=None):
     deadline=time.monotonic()+seconds
     code='import json,os,urllib.request; print(json.load(urllib.request.urlopen("http://127.0.0.1:"+os.getenv("BYCALL_PORT","8000")+"/health",timeout=3))["version"])'
     while time.monotonic()<deadline:
         try:
-            cid=compose(project,'ps','-q','host')
+            cid=compose(project,'ps','-q','host',project_name=project_name)
             if cid and run(['docker','exec',cid,'python','-c',code],timeout=8)==version:
                 return True
         except (DeployError,subprocess.TimeoutExpired):
@@ -151,16 +189,27 @@ def _apply_locked(project, archive, digest, initialize=False, bind_ip='192.168.1
     with tempfile.TemporaryDirectory(prefix='bycall-upgrade-') as temp:
         ctx=Path(temp)
         meta=extract_payload(archive,ctx,digest)
-        config=json.loads(compose(project,'config','--format','json'))
+        # 首次安装不能在 .env 创建前使用目录名 host，再于创建后切换成 bycall。
+        config=json.loads(compose(project,'config','--format','json',project_name='bycall' if initialize else None))
+        project_name=config.get('name')
+        if not project_name or not re.fullmatch(r'[a-z0-9][a-z0-9_-]*',project_name):
+            raise DeployError('无法确认 Compose 项目名')
+        if initialize and project_name!='bycall':
+            raise DeployError('首次安装项目名必须为 bycall')
+        print('目标项目：'+project_name+'；目录：'+str(project),flush=True)
         image=config['services']['host']['image']
         if not re.fullmatch(r'bycall-host:[A-Za-z0-9_.-]+',image):
             raise DeployError('主机镜像标签不在本项目允许范围')
-        cid=compose(project,'ps','-q','host')
+        cid=compose(project,'ps','-q','host',project_name=project_name)
         if initialize and cid:
-            raise DeployError('已有主机容器，拒绝首次初始化')
+            raise DeployError('目标项目 '+project_name+' 已有主机容器，拒绝首次初始化；不应删除或强行改成升级')
         if not initialize and not cid:
             raise DeployError('没有运行中的主机，拒绝猜测升级状态')
         old=inspect(cid) if cid else None
+        if old:
+            validate_owner(old,project,project_name)
+        if initialize:
+            check_first_install(config,bind_ip)
         if old and not old['State']['Running']:
             raise DeployError('原主机未运行，先排查原服务')
         base_id=old['Image'] if old else json.loads(run(['docker','image','inspect',image]))[0]['Id']
@@ -204,7 +253,7 @@ def _apply_locked(project, archive, digest, initialize=False, bind_ip='192.168.1
                 if data is None or not (data/'host.db').is_file():
                     raise DeployError('无法定位当前业务库，升级前拒绝停机')
                 print('[3/5] 停止主机并创建本地一致性数据库备份',flush=True)
-                compose(project,'stop','-t','20','host',capture=False)
+                compose(project,'stop','-t','20','host',capture=False,project_name=project_name)
                 snapshot_database(data/'host.db',backup/'host.db')
             else:
                 print('[3/5] 首次生成配置，密钥只保存在 N100 本机',flush=True)
@@ -213,8 +262,8 @@ def _apply_locked(project, archive, digest, initialize=False, bind_ip='192.168.1
             print('[4/5] 启动新主机并校验健康/版本（最多90秒，保留原有连接配置和挂载）',flush=True)
             args=['up','-d','--no-build','--pull','never']
             if old:args+=['--no-deps','host']
-            compose(project,*args,capture=False)
-            if not wait_health(project,meta['version']):
+            compose(project,*args,capture=False,project_name=project_name)
+            if not wait_health(project,meta['version'],project_name=project_name):
                 raise DeployError('新主机健康或版本校验未通过')
             print('[5/5] 升级完成，版本 '+meta['version']+'；模型实际加载验证通过。',flush=True)
             print(('数据库快照' if old else '版本记录')+'仅保留在 N100：'+str(backup),flush=True)
@@ -223,16 +272,16 @@ def _apply_locked(project, archive, digest, initialize=False, bind_ip='192.168.1
             try:
                 run(['docker','tag',base_id,image])
                 if old:
-                    compose(project,'up','-d','--no-deps','--no-build','--pull','never','host',capture=False)
-                    recovered=wait_health(project,old_version,60)
+                    compose(project,'up','-d','--no-deps','--no-build','--pull','never','host',capture=False,project_name=project_name)
+                    recovered=wait_health(project,old_version,60,project_name=project_name)
                     print('旧镜像恢复健康。' if recovered else '旧镜像健康未确认，需要人工检查；未自动回退数据库。',flush=True)
                 else:
-                    compose(project,'up','-d','--no-deps','--no-build','--pull','never','host',capture=False)
-                    recovered=wait_health(project,old_version,60)
+                    compose(project,'up','-d','--no-deps','--no-build','--pull','never','host',capture=False,project_name=project_name)
+                    recovered=wait_health(project,old_version,60,project_name=project_name)
                     if recovered:
                         print('首次初始化未通过新版本检查，已恢复原镜像；配置与数据保留。',flush=True)
                     else:
-                        compose(project,'stop','host',capture=False)
+                        compose(project,'stop','host',capture=False,project_name=project_name)
                         print('首次初始化失败，主机已停止以避免反复重启；配置、模型和数据均保留。',flush=True)
             except Exception:
                 print('恢复旧镜像未完成；请保留现场，人工检查。',flush=True)
