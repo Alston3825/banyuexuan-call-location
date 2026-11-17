@@ -32,7 +32,7 @@
   "host/deploy/docker-compose.offline.yml.example": "26db57c0d3df81fb169acdba2707145a4a853a298c7930ae0e53d55715bde888",
   "host/deploy/start-station-screen.sh": "5cbe5010bf88203f4359c86e95f84dd4db352a18fe23f2a051f2e168bf69491a",
   "host/deploy/install-ubuntu.sh": "9f2ad9863f2c8e4bd8bc26e2e02e2302942385b3743c9351cf58b7531e0b2109",
-  "host/deploy/n100_remote.py": "04055b1f3925458e343f774a6320a4be78b8b10067050c8f6c50a871dbfc474a",
+  "host/deploy/n100_remote.py": "b629baa7bf73cb2aac65a89cf63bb9d63b18b172749aef2f73b187daf3136835",
   "host/tests/test_service.py": "f4e55f9f2ef2e0cb4c3343fb25ef986f08dd27046479eb5004e8ff5acced38e3",
   "host/tests/test_presence.py": "dc38cb86d49d8bd6487342aad4f79bea6b3fbbe040c175320e8fbbc0d3572fcf",
   "host/tests/test_updater.py": "278f6229f9dccde53edb2c9b359b94ce36ba401a1514b88ed3b5f045ca335f3a",

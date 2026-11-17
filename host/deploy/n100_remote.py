@@ -206,7 +206,7 @@ def _apply_locked(project, archive, digest, initialize=False, bind_ip='192.168.1
             if not wait_health(project,meta['version']):
                 raise DeployError('新主机健康或版本校验未通过')
             print('[5/5] 升级完成，版本 '+meta['version']+'；模型实际加载验证通过。',flush=True)
-            print('数据库快照仅保留在 N100：'+str(backup),flush=True)
+            print(('数据库快照' if old else '版本记录')+'仅保留在 N100：'+str(backup),flush=True)
         except BaseException as error:
             print('更新失败，保留数据库和错误现场，尝试恢复旧镜像。',flush=True)
             try:
@@ -216,7 +216,13 @@ def _apply_locked(project, archive, digest, initialize=False, bind_ip='192.168.1
                     recovered=wait_health(project,old_version,60)
                     print('旧镜像恢复健康。' if recovered else '旧镜像健康未确认，需要人工检查；未自动回退数据库。',flush=True)
                 else:
-                    print('首次初始化失败，配置已保留；请检查后重试，未删除数据。',flush=True)
+                    compose(project,'up','-d','--no-deps','--no-build','--pull','never','host',capture=False)
+                    recovered=wait_health(project,old_version,60)
+                    if recovered:
+                        print('首次初始化未通过新版本检查，已恢复原镜像；配置与数据保留。',flush=True)
+                    else:
+                        compose(project,'stop','host',capture=False)
+                        print('首次初始化失败，主机已停止以避免反复重启；配置、模型和数据均保留。',flush=True)
             except Exception:
                 print('恢复旧镜像未完成；请保留现场，人工检查。',flush=True)
             raise DeployError(str(error)) from error
