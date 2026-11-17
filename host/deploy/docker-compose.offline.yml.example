@@ -1,0 +1,9 @@
+# 离线安装包将此文件命名为 host/docker-compose.override.yml，自动覆盖镜像标签。
+# 不要执行 build；启动使用 docker compose up -d --no-build --pull never。
+services:
+  mosquitto:
+    image: bycall-mosquitto:n100-20261116
+  host:
+    image: bycall-host:n100-20261116
+  updater:
+    image: bycall-host:n100-20261116
