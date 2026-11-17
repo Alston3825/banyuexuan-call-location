@@ -155,3 +155,12 @@ class TestTranscribe(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(t2.cached_many(['a.m4a', 'b.m4a']), {'a.m4a': '护理师你好'})
         tmp.cleanup()
+
+class TestSttStatus(Base):
+    def test_model_status_auth_and_unavailable(self):
+        from bycall.core.transcribe import Transcriber
+        tr=Transcriber(os.path.join(self.tmp.name,'cache.db'),model_dir='/missing-model-test')
+        c=TestClient(create_app(self.svc,VoiceStore(os.path.join(self.tmp.name,'voice')),api_key='k',transcriber=tr))
+        self.assertEqual(c.get('/station/stt').status_code,401)
+        s=c.get('/station/stt',headers={'x-api-key':'k'}).json()
+        self.assertFalse(s['available']);self.assertFalse(s['loaded']);self.assertTrue(s['error'])
