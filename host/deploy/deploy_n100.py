@@ -59,8 +59,10 @@ def ssh_options(args, binary='ssh'):
 def readonly_check(args):
     # 在标准输入执行源码，不上传任何文件。
     worker=(ROOT/'host/deploy/n100_remote.py').read_text()
-    cmd=ssh_options(args)+[args.target,shlex.join(['python3','-','check','--project',args.project])]
-    run(cmd,input=worker,text=True)
+    cmd=ssh_options(args)+[args.target,shlex.join(['python3','-','check','--project',args.project,'--bind-ip',args.host])]
+    result=run(cmd,input=worker,text=True,capture_output=True)
+    print(result.stdout,flush=True)
+    return json.loads(result.stdout)
 
 
 def menu(args):
@@ -99,7 +101,9 @@ def main():
         print('源码包：'+str(archive)+'（'+str(archive.stat().st_size)+' 字节；不含模型、密码或数据库）',flush=True)
         if args.action=='package':return 0
         # 先检查 SSH，再在用户缓存中暂存；从不关闭主机密钥核验。
-        readonly_check(args)
+        status=readonly_check(args)
+        if args.action=='initialize' and (status.get('active_health') or {}).get('ok'):
+            raise RuntimeError('N100 已有呼叫服务运行，请先核对其容器和配置目录；未传输或初始化，不能按全新安装覆盖')
         remote='.cache/bycall-deploy/'+meta['version']
         mkdir='from pathlib import Path; Path('+repr(remote)+').mkdir(parents=True,exist_ok=True,mode=0o700)'
         run(ssh_options(args)+[args.target,shlex.join(['python3','-c',mkdir])])

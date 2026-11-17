@@ -216,3 +216,9 @@ class DeployTests(unittest.TestCase):
             listener.bind(('127.0.0.1',0));port=listener.getsockname()[1]
             config={'services':{'host':{'volumes':[{'type':'bind','source':str(data),'target':'/data'}],'ports':[{'published':str(port),'protocol':'tcp'}]}}}
             with self.assertRaises(self.remote.DeployError):self.remote.check_first_install(config,'127.0.0.1')
+
+
+    def test_client_refuses_initialize_when_health_already_running(self):
+        with patch.object(self.local,'ROOT',self.root),patch.object(self.local,'readonly_check',return_value={'active_health':{'ok':True,'version':'old'}}),patch.object(self.local,'run') as invoked,patch.object(sys,'argv',['deploy','initialize','--confirm','测试初始化']),patch.object(sys.stdin,'isatty',return_value=True),patch.object(sys,'stdout',io.StringIO()),patch.object(sys,'stderr',io.StringIO()):
+            self.assertEqual(self.local.main(),1)
+        invoked.assert_not_called()

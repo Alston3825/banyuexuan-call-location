@@ -15,6 +15,7 @@ import subprocess
 import tarfile
 import tempfile
 import time
+import urllib.request
 from pathlib import Path
 
 
@@ -82,7 +83,7 @@ def inspect(cid):
     return json.loads(run(['docker', 'inspect', cid]))[0]
 
 
-def check(project):
+def check(project, bind_ip='192.168.1.108'):
     models = []
     root = project / 'models'
     if root.is_dir():
@@ -91,9 +92,18 @@ def check(project):
             models.append(dict(path=str(f.parent), bytes=f.stat().st_size,
                                files_complete=all((f.parent/n).is_file() for n in ('config.json','tokenizer.json'))))
     r = subprocess.run(['docker','ps','--format','{{.Names}} {{.Status}}'], capture_output=True, text=True)
+    active=None
+    try:
+        opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open('http://'+bind_ip+':8100/health',timeout=3) as response:
+            health=json.load(response)
+            active={k:health.get(k) for k in ('ok','version','store_id')}
+    except Exception:
+        pass
     print(json.dumps(dict(host=platform.node(), architecture=platform.machine(), project=str(project),
+                          active_health=active,
                           env_exists=(project/'.env').is_file(), models=models,
-                          docker_access=r.returncode == 0, services=r.stdout.splitlines() if r.returncode==0 else [],
+                          docker_access=r.returncode == 0, services=r.stdout.splitlines() if r.returncode==0 else None,
                           note='只读检查；未读取密钥或业务记录，未重启服务'), ensure_ascii=False, indent=2))
 
 
@@ -310,7 +320,7 @@ def main():
     args=p.parse_args()
     project=Path(args.project).resolve()
     try:
-        if args.action=='check':check(project)
+        if args.action=='check':check(project,args.bind_ip)
         else:
             if not args.archive or not re.fullmatch(r'[a-f0-9]{64}',args.sha256 or ''):
                 raise DeployError('缺少升级包或 SHA256')
