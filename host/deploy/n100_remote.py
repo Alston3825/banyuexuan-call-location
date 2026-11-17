@@ -68,9 +68,9 @@ def extract_payload(archive, dest, expected):
             name = Path(m.name)
             if name.is_absolute() or '..' in name.parts or not name.parts or not m.isfile():
                 raise DeployError('升级包含不允许的条目')
-            if name.parts[0] not in ('bycall','tools','requirements.txt','release.json'):
+            if name.parts[0] not in ('bycall','tools','tests','deploy','requirements.txt','release.json'):
                 raise DeployError('升级包包含配置或运行数据，已拒绝')
-            if name.parts[0] in ('bycall','tools') and not (name.suffix in ('.py','.html') or name.name in ('VERSION','demo_pilot.json')):
+            if name.parts[0] in ('bycall','tools','tests','deploy') and not (name.suffix in ('.py','.html') or name.name in ('VERSION','demo_pilot.json')):
                 raise DeployError('升级文件不在源码白名单')
             total += m.size
             if total > 30*1024*1024:
@@ -173,7 +173,18 @@ def _apply_locked(project, archive, digest, initialize=False, bind_ip='192.168.1
         run(['docker','tag',base_id,base_tag])
         (ctx/'Dockerfile').write_text('FROM '+base_tag+'\nCOPY bycall /app/bycall\nCOPY tools /app/tools\n')
         print('[1/5] 本地离线增量构建（不下载基础镜像或依赖）',flush=True)
-        run(['docker','build','--pull=false','--network=none','-t',new_tag,ctx],timeout=600,capture=False)
+        # 与 N100 已验证的 compose build 路径一致，不要求额外安装 buildx。
+        build_spec=ctx/'compose-build.json'
+        build_spec.write_text(json.dumps(dict(services=dict(candidate=dict(image=new_tag,platform='linux/amd64',
+                                  build=dict(context=str(ctx),dockerfile='Dockerfile',pull=False,network='none'))))))
+        run(['docker','compose','--project-directory',ctx,'-f',build_spec,'build','candidate'],timeout=600,capture=False)
+        if (ctx/'tests').is_dir():
+            print('  正在运行隔离源码回归测试（不接触真实配置和数据库）',flush=True)
+            run(['docker','run','--rm','--pull','never','--network','none','--read-only','--tmpfs','/tmp',
+                 '-e','PYTHONDONTWRITEBYTECODE=1','-v',str(ctx/'tests')+':/app/tests:ro',
+                 '-v',str(ctx/'deploy')+':/app/deploy:ro',new_tag,
+                 'python','-W','ignore::ResourceWarning','-m','unittest','discover','-s','tests','-q'],timeout=300)
+            print('  隔离源码回归测试通过',flush=True)
         models=project/'models'
         env=config['services']['host'].get('environment',{})
         model_path=env.get('STT_MODEL_DIR') or '/models'
@@ -199,7 +210,7 @@ def _apply_locked(project, archive, digest, initialize=False, bind_ip='192.168.1
                 print('[3/5] 首次生成配置，密钥只保存在 N100 本机',flush=True)
                 initialize_env(project,bind_ip)
             run(['docker','tag',new_tag,image])
-            print('[4/5] 使用新镜像启动主机（保留全部现有连接配置和挂载）',flush=True)
+            print('[4/5] 启动新主机并校验健康/版本（最多90秒，保留原有连接配置和挂载）',flush=True)
             args=['up','-d','--no-build','--pull','never']
             if old:args+=['--no-deps','host']
             compose(project,*args,capture=False)

@@ -25,9 +25,9 @@ def run(args, **kw):
 
 def package(root, output):
     files={}
-    for folder in ('bycall','tools'):
+    for folder in ('bycall','tools','tests','deploy'):
         for p in (root/'host'/folder).rglob('*'):
-            if p.is_file() and '__pycache__' not in p.parts and (p.suffix in ('.py','.html') or p.name in ('VERSION','demo_pilot.json')):
+            if p.is_file() and not p.name.startswith('._') and '__pycache__' not in p.parts and (p.suffix in ('.py','.html') or p.name in ('VERSION','demo_pilot.json')):
                 if p.is_symlink():raise RuntimeError('源码包不接受符号链接：'+str(p))
                 files[str(p.relative_to(root/'host')).replace('\\','/')]=p.read_bytes()
     files['requirements.txt']=(root/'host/requirements.txt').read_bytes()
@@ -48,7 +48,7 @@ def package(root, output):
 
 
 def ssh_options(args, binary='ssh'):
-    cmd=[binary,'-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=8']
+    cmd=[binary,'-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=8','-o','ServerAliveInterval=15','-o','ServerAliveCountMax=3']
     if args.identity:
         identity=Path(args.identity).expanduser()
         if not identity.is_file():raise RuntimeError('找不到 SSH 身份文件，请先完成 SSH 授权')
@@ -64,9 +64,9 @@ def readonly_check(args):
 
 
 def menu(args):
-    print('1. 只读检查 SSH、模型和安装状态\n2. 打包源码（不连接 N100）\n3. 首次配置并启动测试主机\n4. 升级已运行的主机/大屏')
+    print('1. 只读检查 SSH、模型和安装状态\n2. 打包源码（不连接 N100）\n3. 首次配置并启动测试主机\n4. 升级已运行的主机/大屏\n5. 仅传输源码包，不执行升级')
     choice=input('请选择 [默认 1]：').strip() or '1'
-    actions={'1':'check','2':'package','3':'initialize','4':'apply'}
+    actions={'1':'check','2':'package','3':'initialize','4':'apply','5':'stage'}
     if choice not in actions:raise RuntimeError('无效选择')
     args.action=actions[choice]
     if args.action in ('initialize','apply'):
@@ -77,7 +77,7 @@ def menu(args):
 
 def main():
     p=argparse.ArgumentParser()
-    p.add_argument('action',nargs='?',choices=('check','package','initialize','apply','menu'),default='menu')
+    p.add_argument('action',nargs='?',choices=('check','package','stage','initialize','apply','menu'),default='menu')
     p.add_argument('--host',default='192.168.1.108')
     p.add_argument('--user',default='gateway-byx')
     p.add_argument('--identity',default=str(Path.home()/'.ssh/banyuexuan_deploy') if (Path.home()/'.ssh/banyuexuan_deploy').is_file() else None)
@@ -93,6 +93,8 @@ def main():
         if args.action=='check':readonly_check(args);return 0
         if args.action in ('apply','initialize') and args.confirm!=('上线' if args.action=='apply' else '测试初始化'):
             raise RuntimeError('尚未确认执行；可先选只读检查或打包')
+        if args.action in ('apply','initialize') and not sys.stdin.isatty():
+            raise RuntimeError('请在 Mac/Windows 的交互终端运行，以便本机输入 sudo 密码')
         archive,meta,digest=package(ROOT,ROOT/'dist/n100-releases')
         print('源码包：'+str(archive)+'（'+str(archive.stat().st_size)+' 字节；不含模型、密码或数据库）',flush=True)
         if args.action=='package':return 0
@@ -103,6 +105,11 @@ def main():
         run(ssh_options(args)+[args.target,shlex.join(['python3','-c',mkdir])])
         worker=ROOT/'host/deploy/n100_remote.py'
         run(ssh_options(args,'scp')+[archive,worker,args.target+':'+remote+'/'])
+        verify='import hashlib; from pathlib import Path; p=Path('+repr(remote+'/'+archive.name)+'); assert hashlib.sha256(p.read_bytes()).hexdigest()=='+repr(digest)+'; print("传输 SHA256 校验通过")'
+        run(ssh_options(args)+[args.target,shlex.join(['python3','-c',verify])])
+        if args.action=='stage':
+            print('已暂存到 N100：'+remote+'；未安装、未生成密钥、未重启服务。')
+            return 0
         remote_archive=remote+'/'+archive.name
         remote_worker=remote+'/'+worker.name
         cmd=['sudo','--','python3',remote_worker,args.action,'--project',args.project,
