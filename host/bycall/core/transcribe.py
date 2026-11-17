@@ -12,6 +12,8 @@ import threading
 import time
 from contextlib import closing
 
+from .stt_model import ModelError, resolve_model
+
 PROMPT = '以下是月子中心客房里妈妈对护理师的留言,简体中文。'
 
 
@@ -22,9 +24,10 @@ class TranscribeUnavailable(Exception):
 class Transcriber:
     def __init__(self, db_path, model_dir=None, engine=None):
         self.db_path = str(db_path)
-        self.model_dir = model_dir if model_dir is not None else os.environ.get('STT_MODEL_DIR', '/models/whisper-small')
+        self.model_dir = model_dir if model_dir is not None else os.environ.get('STT_MODEL_DIR', '/models')
         self._engine = engine            # 测试时可注入:engine(path) -> str
         self._model = None
+        self._last_error = None
         self._lock = threading.Lock()    # 一次只识别一条,避免把 N100 的 CPU 占满影响呼叫
         with closing(sqlite3.connect(self.db_path)) as db:
             db.execute('CREATE TABLE IF NOT EXISTS voice_transcripts(name TEXT PRIMARY KEY, text TEXT NOT NULL, at REAL NOT NULL)')
@@ -32,7 +35,37 @@ class Transcriber:
 
     @property
     def available(self):
-        return self._engine is not None or os.path.isfile(os.path.join(self.model_dir, 'model.bin'))
+        return self.status()['available']
+
+    def status(self):
+        if self._engine is not None:
+            return dict(available=True, loaded=True, mode='injected', error=None)
+        try:
+            path = resolve_model(self.model_dir)
+            return dict(available=True, loaded=self._model is not None, model_dir=path,
+                        format='CTranslate2', error=self._last_error)
+        except (ModelError, OSError) as e:
+            return dict(available=False, loaded=False, error=str(e))
+
+    def _load(self):
+        if self._model is not None:
+            return self._model
+        try:
+            path = resolve_model(self.model_dir)
+            from faster_whisper import WhisperModel
+            threads = max(1, min(4, int(os.environ.get('STT_CPU_THREADS', '2'))))
+            self._model = WhisperModel(path, device='cpu', compute_type='int8', cpu_threads=threads,
+                                       local_files_only=True)
+            self._last_error = None
+        except Exception as e:
+            self._last_error = '本地模型加载失败：' + str(e)[:240]
+            raise TranscribeUnavailable(self._last_error) from e
+        return self._model
+
+    def load_model(self):
+        with self._lock:
+            self._load()
+        return self.status()
 
     def cached(self, name):
         with closing(sqlite3.connect(self.db_path)) as db:
@@ -50,12 +83,7 @@ class Transcriber:
     def _run(self, path):
         if self._engine:
             return self._engine(path)
-        if self._model is None:
-            try:
-                from faster_whisper import WhisperModel
-            except ImportError as e:
-                raise TranscribeUnavailable('主机程序里没有语音识别组件') from e
-            self._model = WhisperModel(self.model_dir, device='cpu', compute_type='int8', cpu_threads=4)
+        self._load()
         segs, _ = self._model.transcribe(path, language='zh', vad_filter=True, initial_prompt=PROMPT, beam_size=3)
         return ''.join(s.text for s in segs).strip()
 
@@ -65,7 +93,7 @@ class Transcriber:
         if hit is not None:
             return hit, True
         if not self.available:
-            raise TranscribeUnavailable('未安装语音识别模型(把 models 文件夹放到主机 host 目录下)')
+            raise TranscribeUnavailable(self.status().get('error') or '本地模型未就绪')
         with self._lock:
             hit = self.cached(name)
             if hit is not None:

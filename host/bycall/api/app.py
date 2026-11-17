@@ -148,6 +148,10 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
         except UpdateError as e:
             raise HTTPException(422, str(e))
 
+    @app.get('/station/stt', dependencies=[Depends(auth)])
+    def stt_status():
+        return transcriber.status() if transcriber else dict(available=False, loaded=False, error='转文字功能未启用')
+
     @app.get('/station/snapshot', dependencies=[Depends(auth)])
     def station_snapshot(recent: int = 15):
         """大屏一次拉取:进行中的呼叫、最近已结束、护理师(位置/在线/电量/忙闲)、客房平板在线。"""
@@ -204,7 +208,7 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
             h['owner_name'] = cfg.name(h['owner']) if h['owner'] else None
         with svc.core._db() as db:
             delivery_alerts = [dict(r) for r in db.execute("SELECT staff,ref,attempts FROM watch_delivery WHERE store=? AND kind='CALL_DISPATCH' AND received IS NULL AND attempts>=3 AND ref IN (SELECT id FROM calls WHERE state IN ('pending','claimed','arrived'))", (store,))]
-        return dict(watches=svc.presence.snapshot(), watch_slots=max(40, len(svc.presence.known())), delivery_alerts=delivery_alerts, helps=helps, store_id=cfg.store_id, now=svc._now().isoformat(), active=active, recent=done[:recent],
+        return dict(stt=transcriber.status() if transcriber else None, watches=svc.presence.snapshot(), watch_slots=max(40, len(svc.presence.known())), delivery_alerts=delivery_alerts, helps=helps, store_id=cfg.store_id, now=svc._now().isoformat(), active=active, recent=done[:recent],
                     nurses=nurses, rooms=rooms,
                     host=host_status.snapshot() if host_status else None, version=VERSION)
 

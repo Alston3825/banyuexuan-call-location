@@ -28,6 +28,8 @@ services:
     ports: ["${BIND_IP:-0.0.0.0}:8100:8000"]
     environment:
       MQTT_HOST: mosquitto
+      STT_MODEL_DIR: ${STT_MODEL_DIR:-/models}
+      STT_CPU_THREADS: ${STT_CPU_THREADS:-2}
       BYCALL_BACKUP_DIR: /backups          # 备份时段/保留天数在 http://主机IP:8100/backup 页面设置
       CLOUD_ENDPOINT: ${CLOUD_ENDPOINT:-}       # 云备份(S3 兼容对象存储),留空则只做本机备份
       CLOUD_BUCKET: ${CLOUD_BUCKET:-}

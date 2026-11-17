@@ -79,6 +79,7 @@ dialog input{font:inherit;padding:8px;width:100%;box-sizing:border-box}dialog la
   <span class="pill" id="cnt">—</span>
   <span class="sp"></span>
   <span class="pill" id="hostinfo" title="主机最近一次数据库备份时间与磁盘剩余空间"></span>
+  <span class="pill" id="stt-status"></span>
   <button id="snd">🔔 启用声音提醒</button>
   <button id="gb">自定义按钮</button>
   <button id="rb">按钮接收岗位</button>
@@ -276,6 +277,7 @@ function tick() {
   $('err').style.display = (Date.now() - lastOk > 8000 && lastOk) ? 'block' : 'none';
 }
 function render(s) {
+  const stt=s.stt; $('stt-status').textContent=stt?.available ? (stt.loaded?'转文字：已加载':'转文字：文件齐全') : '转文字：未就绪'; $('stt-status').title=stt?.error||'首次识别时加载本地模型';
   const helps = s.helps || [];
   $('helpwarn').style.display = helps.length || (s.delivery_alerts || []).length ? 'block' : 'none';
   $('helpwarn').textContent = helps.map(h => '同事求助：' + h.name + ' · ' + (h.room || '位置未知') + ' · ' + (h.owner_name ? h.owner_name + '已响应' : h.stage >= 2 ? '无人响应，请护士长处理' : '等待响应')).join('；');
