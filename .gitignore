@@ -29,3 +29,7 @@ host/config/
 host/mosquitto/auth/
 发出文件/
 .DS_Store
+
+# 远程升级快照与暂存不进入源码备份
+host/upgrade-backups/
+.cache/bycall-deploy/

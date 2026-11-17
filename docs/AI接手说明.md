@@ -53,3 +53,7 @@ Python/FastAPI + SQLite + MQTT；Android 平板和护士手表；核心实现位
 ## Docker Hub 不通时的 N100 安装
 
 2026-11-16 用户 N100 首次构建失败，registry HTTPS 超时。使用 docs/14-N100离线镜像安装.md 继续，不再要求运行 build。离线包使用 linux/amd64、专用镜像标签和 Compose 覆盖文件，已通过镜像内 136 项回归及隔离启动检查。只导入不等于已上线；N100 实际导入/配置/启动仍待用户操作。离线构建物在 dist，不进入源码备份，可按源码和主机 Dockerfile 重建。
+
+## 模型与 Mac 远程升级（2026-11-16）
+
+先读 docs/15-语音模型接入与Mac远程升级.md。已用用户授权公钥连通 N100，实际将 host/whisper-small 复制到 host/models/whisper-small，源模型及旧空目录保留。新 Mac/Windows 入口支持源码暂存、隔离预检、首次测试启动及升级；147 项回归通过。真实 N100 尚未生成 .env 或启动服务，用户需交互 sudo 执行。没有保存密码或自动恢复数据库；不能把已传输源码当作已发布。
