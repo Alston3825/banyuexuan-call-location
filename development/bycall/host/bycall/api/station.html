@@ -410,12 +410,12 @@ function updateWatchMeasurements(card) {
   location.textContent=expired?'位置已过期':location.dataset.label;
 }
 function renderWatches(list) {
-  const box=$('watches'); box.replaceChildren();
+  const box=$('watches'), scroll=box.scrollTop, previous=new Map([...box.querySelectorAll('[data-sn]')].map(card=>[card.dataset.sn,card])), fragment=document.createDocumentFragment();
   const slots=Math.max(60,stationSettings.watch_slots,list.length);
   box.style.setProperty('--watch-rows',Math.ceil(slots/6));
   box.style.setProperty('--watch-rows-small',Math.ceil(slots/5));
   list.slice().sort((a,b)=>a.sn.localeCompare(b.sn,'zh',{numeric:true})).forEach(w=>{
-    const card=el('div','watch-tile'+(!w.online?' offline':'')+(w.status==='FAULT'?' fault':''));
+    const card=previous.get(w.sn)||el('div');card.className='watch-tile'+(!w.online?' offline':'')+(w.status==='FAULT'?' fault':'');card.replaceChildren();delete card.dataset.staff;
     card.dataset.sn=w.sn;if(w.bound_staff){card.dataset.staff=w.bound_staff;card.classList.add('dbl')}
     const head=el('div','watch-head'),name=el('span','watch-name',w.bound_name||(w.spare?'备用表':'待分配'));
     name.title=w.bound_name||w.status_text||'';head.append(el('span','watch-sn',w.sn),name);
@@ -430,13 +430,14 @@ function renderWatches(list) {
     const label=w.location_status==='fresh'?(w.location_area||w.location_room||'已定位'):w.location_status==='stale'?'位置已过期':w.location_reason==='scan_error'?'扫描异常':w.location_reason==='unbound'?'未佩戴':w.location_reason==='simulated'?'测试观测':'位置未知';
     value.dataset.state=w.location_status||'unknown';value.dataset.label=label;value.dataset.at=w.located_at||'';value.dataset.ttl=w.location_ttl_seconds||30;
     value.title=label+(w.located_at?' · '+new Date(w.located_at).toLocaleTimeString('zh-CN'):'');loc.append(el('span','label','位置'),value);
-    card.append(head,status,metrics,loc);box.append(card);updateWatchMeasurements(card);
+    card.append(head,status,metrics,loc);fragment.append(card);updateWatchMeasurements(card);
   });
   for(let i=list.length;i<slots;i++){
     const card=el('div','watch-tile vacant');card.setAttribute('aria-label','待登记位置 '+(i+1));
     const head=el('div','watch-head');head.append(el('span','watch-sn','位置 '+String(i+1).padStart(2,'0')),el('span','watch-name','待登记'));
-    card.append(head,el('div','wst','等待设备登记'),el('div','watch-metrics','心率 —　血压 —'),el('div','watch-location','位置 —'));box.append(card);
+    card.append(head,el('div','wst','等待设备登记'),el('div','watch-metrics','心率 —　血压 —'),el('div','watch-location','位置 —'));fragment.append(card);
   }
+  box.replaceChildren(fragment);box.scrollTop=scroll;
   $('n-watch').textContent=list.filter(w=>w.online).length+'/'+list.length+' 在线';
   $('slot-count').textContent=slots+' 个位置 · 在岗 '+list.filter(w=>w.bound_staff).length+' 人';
 }

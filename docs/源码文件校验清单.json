@@ -175,7 +175,7 @@
   "development/bycall/host/bycall/api/terminal_admin.py": "b44fecc74a3f30df0482054556704f768eaecd3bad6cc1567a24d1cea08afcdf",
   "development/bycall/host/bycall/api/swap.html": "9ef685f87233f690b604958ebc3ede38e8baf41624d9187f5646bc956a690596",
   "development/bycall/host/bycall/api/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  "development/bycall/host/bycall/api/station.html": "e00843573fc1847b35035a3f29b1c9b3cddc363d74cc93b62323736a3cf89b42",
+  "development/bycall/host/bycall/api/station.html": "de26a5c205eab5bde3e3de5d5522b4df531a5128c56252da647009187b0bef6d",
   "development/bycall/host/bycall/api/app.py": "1674c4afb53d1e6f9bf3c42bdc3405f976e358ada2472109da80d0d6afdc442a",
   "development/bycall/host/bycall/api/terminals.html": "bbfa5e67a6c4ca921a954da98924eee17adc001dece282faa0d71df69cb83c38",
   "development/bycall/host/bycall/api/backup.html": "c35b2839cc6319278c948fa71c886f23ae0bcdcdddb24b5938175b1a9eccd545",
