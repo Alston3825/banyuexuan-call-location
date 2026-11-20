@@ -22,7 +22,11 @@ class TestDualScreens(Base):
 
     def test_both_screens_receive_identical_authoritative_location_envelope(self):
         self.report()
-        text=self.text();twin=self.twin()
+        text_response=self.c.get('/station/snapshot',headers={'X-Api-Key':'admin'})
+        twin_response=self.c.get('/integration/twin/locations',headers={'X-Api-Key':'twin'})
+        self.assertEqual(text_response.headers['cache-control'],'no-store')
+        self.assertEqual(twin_response.headers['cache-control'],'no-store')
+        text=text_response.json();twin=twin_response.json()
         self.assertEqual(text['location_state'],twin)
         person=next(p for p in twin['items'] if p['watch']=='w-01')
         card=next(p for p in text['watches'] if p['sn']=='w-01')

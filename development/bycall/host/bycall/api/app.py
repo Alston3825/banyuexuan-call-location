@@ -7,7 +7,7 @@ import os
 from datetime import timedelta
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 
 from ..core.guest_buttons import GuestButtonError, GuestButtons
@@ -208,7 +208,8 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
         return _updater('POST', '/api/apply')
 
     @app.get('/station/snapshot', dependencies=[Depends(auth)])
-    def station_snapshot(recent: int = 15):
+    def station_snapshot(response: Response, recent: int = 15):
+        response.headers['Cache-Control'] = 'no-store'
         """大屏一次拉取:进行中的呼叫、最近已结束、护理师(位置/在线/电量/忙闲)、客房平板在线。"""
         cfg = svc.cfg
         with svc.core._db() as db:
@@ -486,7 +487,8 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
             raise HTTPException(401, 'invalid read-only key')
 
     @app.get('/integration/twin/locations', dependencies=[Depends(twin_auth)])
-    def twin_locations():
+    def twin_locations(response: Response):
+        response.headers['Cache-Control'] = 'no-store'
         # Exactly the same location envelope as station/snapshot.location_state; only auth differs.
         return svc.location_snapshot()['public']
 
