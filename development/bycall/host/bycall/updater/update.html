@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>主机更新</title>
+<style>
+:root{--bg:#0f1720;--panel:#18222e;--line:#263444;--text:#e8eef5;--mute:#8a9bb0;--ok:#3ecf8e;--warn:#f5a524;--bad:#ff4d4f;--blue:#4c9aff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+main{max-width:760px;margin:0 auto;padding:24px 18px}h1{font-size:22px;margin:0 0 4px}.sub{color:var(--mute);margin-bottom:20px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+h2{margin:0 0 6px;font-size:17px}.t{color:var(--mute);font-size:14px}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:12px}
+button{background:var(--blue);color:#06101c;border:0;border-radius:8px;padding:9px 18px;font-size:15px;font-weight:600;cursor:pointer}
+button.g{background:var(--panel);color:var(--text);border:1px solid var(--line);font-weight:400}button:disabled{opacity:.45;cursor:default}
+.bar{height:10px;background:#0b1118;border-radius:99px;overflow:hidden;margin-top:12px;display:none}.bar i{display:block;height:100%;width:0;background:var(--blue);transition:width .2s}
+.msg{margin-top:10px;min-height:22px}.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+b.v{font-variant-numeric:tabular-nums;background:#0b1118;padding:2px 10px;border-radius:6px}
+input[type=file]{color:var(--mute)}
+</style></head><body><main>
+<h1>主机更新</h1><div class="sub">在这里上传新版本,点一下就能更新主机,不用到主机旁边操作。</div>
+
+<section>
+  <h2>主机程序</h2>
+  <div class="t">当前版本:<b class="v" id="hv">—</b>　<button class="g" id="refresh">刷新</button></div>
+  <div class="t" style="margin-top:8px">选择开发者给你的 <b>bycall-host-amd64.tar.gz</b>,上传后会自动载入、换新版本。更新约 1~3 分钟,期间大屏会短暂断线(呼叫会在恢复后补上);新版本启动失败会自动换回旧版。</div>
+  <div class="row"><input type="file" id="f-host" accept=".gz,.tar,.tgz"><button id="go-host">上传并更新</button></div>
+  <div class="bar" id="bar-host"><i></i></div><div class="msg" id="msg-host"></div>
+</section>
+
+<section>
+  <h2>语音识别模型(留言转文字)</h2>
+  <div class="t">状态:<span id="mv">—</span>。只需要装一次,以后更新主机不用再传。选择 <b>bycall-models.tar.gz</b>(约 430MB)。</div>
+  <div class="row"><input type="file" id="f-models" accept=".gz,.tar,.tgz"><button id="go-models">上传并安装</button></div>
+  <div class="bar" id="bar-models"><i></i></div><div class="msg" id="msg-models"></div>
+</section>
+<div class="t">提示:更新器本身只在换新版本时才需要重装(很少),一般不用管。</div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+function key() { try { let k = localStorage.getItem('bycall_key'); if (!k) { k = prompt('请输入主机 API 密钥'); if (k) localStorage.setItem('bycall_key', k.trim()); } return (k || '').trim(); } catch (e) { return ''; } }
+async function status() {
+  const r = await fetch('/api/status', {headers: {'X-Api-Key': key()}, cache: 'no-store'});
+  if (r.status === 401) { try { localStorage.removeItem('bycall_key'); } catch (e) {} throw new Error('密钥不对,请刷新页面重新输入'); }
+  return r.json();
+}
+async function refresh() {
+  try { const s = await status(); $('hv').textContent = s.host_version || '主机未响应';
+    $('mv').textContent = s.models_installed ? '已安装(' + s.models_size_mb + 'MB)' : '未安装'; $('mv').className = s.models_installed ? 'ok' : 'warn'; return s; }
+  catch (e) { $('hv').textContent = '—'; return null; }
+}
+function upload(kind, file, onprog) {
+  return new Promise((res, rej) => {
+    const x = new XMLHttpRequest(); x.open('POST', '/api/upload/' + kind);
+    x.setRequestHeader('X-Api-Key', key());
+    x.upload.onprogress = e => e.lengthComputable && onprog(e.loaded / e.total);
+    x.onload = () => x.status < 300 ? res() : rej(new Error((JSON.parse(x.responseText || '{}').detail) || ('失败 ' + x.status)));
+    x.onerror = () => rej(new Error('网络中断')); x.send(file);
+  });
+}
+async function go(kind) {
+  const f = $('f-' + kind).files[0], bar = $('bar-' + kind), msg = $('msg-' + kind), btn = $('go-' + kind);
+  if (!f) { msg.className = 'msg warn'; msg.textContent = '请先选择文件'; return; }
+  btn.disabled = true; bar.style.display = 'block'; bar.firstElementChild.style.width = '0'; msg.className = 'msg'; msg.textContent = '正在上传…';
+  try {
+    await upload(kind, f, p => { bar.firstElementChild.style.width = (p * 100).toFixed(0) + '%'; msg.textContent = '正在上传 ' + (p * 100).toFixed(0) + '%'; });
+    bar.firstElementChild.style.width = '100%';
+    for (;;) {                                 // 轮询进度;主机重启期间更新器照常响应
+      await new Promise(r => setTimeout(r, 2000));
+      let s; try { s = await status(); } catch (e) { continue; }
+      const j = s.job; msg.textContent = j.msg;
+      if (j.stage === 'done') { msg.className = 'msg ok'; break; }
+      if (j.stage === 'failed') { msg.className = 'msg bad'; break; }
+    }
+  } catch (e) { msg.className = 'msg bad'; msg.textContent = '失败:' + e.message; }
+  btn.disabled = false; refresh();
+}
+$('go-host').onclick = () => go('host'); $('go-models').onclick = () => go('models'); $('refresh').onclick = refresh;
+refresh();
+</script></body></html>

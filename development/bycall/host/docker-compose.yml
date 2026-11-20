@@ -1,0 +1,71 @@
+x-logging: &logging           # 限制日志大小,避免长期运行把 512G 硬盘写满
+  driver: json-file
+  options: {max-size: "10m", max-file: "5"}
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    logging: *logging
+    ports: ["${BIND_IP:-0.0.0.0}:1883:1883"]    # 上线时 BIND_IP 设为主机的局域网固定 IP
+    volumes:
+      # 上线用 mosquitto.prod.conf(设 MQ_CONF=mosquitto.prod.conf),并先运行 tools/gen_mqtt_auth.py
+      - ./mosquitto/${MQ_CONF:-mosquitto.conf}:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/auth:/mosquitto/auth:ro
+      - ./data/mosquitto:/mosquitto/data
+  host:
+    build: .
+    image: bycall-host:latest      # 无法联网构建时,可用 docker load 导入预构建镜像后 up -d(不加 --build)
+    restart: unless-stopped
+    logging: *logging
+    depends_on: [mosquitto]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    ports: ["${BIND_IP:-0.0.0.0}:8100:8000"]
+    environment:
+      MQTT_HOST: mosquitto
+      BYCALL_BACKUP_DIR: /backups          # 备份时段/保留天数在 http://主机IP:8100/backup 页面设置
+      CLOUD_ENDPOINT: ${CLOUD_ENDPOINT:-}       # 云备份(S3 兼容对象存储),留空则只做本机备份
+      CLOUD_BUCKET: ${CLOUD_BUCKET:-}
+      CLOUD_PREFIX: ${CLOUD_PREFIX:-bycall/}
+      CLOUD_REGION: ${CLOUD_REGION:-}
+      CLOUD_ACCESS_KEY: ${CLOUD_ACCESS_KEY:-}
+      CLOUD_SECRET_KEY: ${CLOUD_SECRET_KEY:-}
+      CLOUD_PASSPHRASE: ${CLOUD_PASSPHRASE:-}   # 云备份加密口令,务必另存,丢了云端备份无法解开
+      BYCALL_BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-7}
+      MQTT_USER: ${MQTT_USER:-}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-}
+      # 默认是虚构的 2 房演示数据;正式使用:把门店配置放到 ./config/store.json,并设 BYCALL_CONFIG=/config/store.json
+      BYCALL_CONFIG: ${BYCALL_CONFIG:-/app/bycall/custom/banyuexuan/demo_pilot.json}
+      BYCALL_API_KEY: ${BYCALL_API_KEY:-dev-key}
+      BYCALL_SWAP_KEY: ${BYCALL_SWAP_KEY:-}      # "换表管理员"密钥:只能用 /swap 换表页,给护士站平板用
+      # 对接管理系统时填写(不填则用本地演示配置)
+      MGMT_URL: ${MGMT_URL:-}
+      MGMT_STORE_ID: ${MGMT_STORE_ID:-}
+      MGMT_API_KEY: ${MGMT_API_KEY:-}
+    volumes:
+      - ./data/host:/data
+      - ./models:/models:ro                # 留言转文字的语音识别模型(一次性放好,见 docs/09)
+      - ./config:/config:ro
+      # 备份务必放到另一块盘/NAS/U 盘:设 BACKUP_PATH=/mnt/usb/bycall(默认同盘,只防误操作,防不了坏盘)
+      - ${BACKUP_PATH:-./data/backups}:/backups
+  updater:                        # 主机更新网页:http://主机IP:8200 (在浏览器里上传新版本,一键更新主机)
+    image: bycall-host:latest
+    command: ["python", "-m", "bycall.updater"]
+    restart: unless-stopped
+    logging: *logging
+    depends_on: [host]
+    ports: ["${BIND_IP:-0.0.0.0}:8200:8200"]
+    environment:
+      BYCALL_API_KEY: ${BYCALL_API_KEY:-dev-key}
+      HOST_SERVICE: host
+      HOST_HEALTH_URL: http://host:8000/health
+      UPDATER_DATA: /updater-data
+    volumes:
+      - ./data/updater:/updater-data                 # Mac 上 publish.sh 推送来的“待升级”主机代码包
+      - /var/run/docker.sock:/var/run/docker.sock    # 需要它来载入镜像、换新版本(相当于主机的管理员权限,仅限店内局域网)
+      - ./models:/models                             # 在网页里上传语音识别模型时写到这里

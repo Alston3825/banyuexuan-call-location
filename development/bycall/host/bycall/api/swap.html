@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>护士站换表</title>
+<style>
+:root{--bg:#0f1720;--panel:#18222e;--line:#263444;--text:#e8eef5;--mute:#8a9bb0;--ok:#3ecf8e;--warn:#f5a524;--bad:#ff4d4f;--blue:#4c9aff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:17px/1.45 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+header{display:flex;align-items:center;gap:12px;padding:10px 16px;background:#0b1118;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:2}
+header h1{font-size:20px;margin:0}
+.sp{flex:1}
+button{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 16px;font-size:17px;cursor:pointer}
+button.pri{background:var(--blue);border-color:var(--blue);color:#06101c;font-weight:700}
+button.okb{background:var(--ok);border-color:var(--ok);color:#06101c;font-weight:700}
+button.warnb{background:#3a2a10;border-color:var(--warn);color:var(--warn)}
+button:disabled{opacity:.4;cursor:not-allowed}
+.tabs{display:flex;gap:6px}
+.tabs button.on{background:#24456b;border-color:#3a6aa5}
+main{padding:14px;max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+h2{margin:0 0 10px;font-size:17px;color:var(--mute);font-weight:600}
+input,select{font-size:19px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:#0f1720;color:var(--text)}
+input.big{width:100%}
+.res{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.res button{font-size:18px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:18px}
+.kv b{color:var(--mute);font-weight:400}
+.w{border:2px solid var(--line);border-radius:12px;padding:10px 12px;background:#1d2937;cursor:pointer;text-align:left}
+.w .sn{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.w .t{font-size:14px;color:var(--mute)}
+.w.sel{border-color:var(--blue);background:#1b3350}
+.w.dis{opacity:.45;cursor:not-allowed}
+.bar{height:8px;border-radius:4px;background:#0f1720;margin:6px 0;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--ok)}
+.bar i.low{background:var(--bad)}
+.msg{padding:12px 14px;border-radius:10px;font-size:18px;margin-top:10px}
+.msg.ok{background:#12342a;color:var(--ok)}.msg.bad{background:#3a1a1e;color:#ffb3b5}.msg.info{background:#1b3350;color:#cfe3ff}
+.warnbar{background:#b26a00;color:#fff;padding:8px 14px;border-radius:10px;font-weight:600}
+.sum{font-size:19px;line-height:1.7}
+.sum b{color:var(--mute);font-weight:400;display:inline-block;min-width:5em}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th,td{text-align:left;padding:7px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mute);font-weight:400}
+.hide{display:none}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+@media (max-width:700px){header{flex-wrap:wrap}.kv{font-size:16px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>⌚ 护士站换表</h1>
+  <div class="tabs"><button id="t-swap" class="on">换表 / 回绑</button><button id="t-pool">备用池</button><button id="t-log">操作日志</button></div>
+  <span class="sp"></span>
+  <span id="who" style="color:var(--mute);font-size:14px"></span>
+  <button id="key">设置密钥</button>
+</header>
+<main>
+  <div id="poolwarn" class="warnbar hide"></div>
+
+  <div id="v-swap">
+    <section>
+      <h2>① 员工身份(输入工号或姓名;扫码枪扫工牌也可以)</h2>
+      <div class="row"><input id="q" class="big" placeholder="工号 / 姓名 / 扫工牌" autocomplete="off" style="flex:1"><button id="qbtn" class="pri">查找</button></div>
+      <div id="qres" class="res"></div>
+    </section>
+
+    <section id="staffbox" class="hide">
+      <h2>② 当日班次</h2>
+      <div class="kv" id="card"></div>
+      <div class="row" style="margin-top:12px">
+        <button id="rbbtn" class="warnb hide">↩ 切回原表</button>
+      </div>
+      <div id="rbmsg"></div>
+    </section>
+
+    <section id="pickbox" class="hide">
+      <h2>③ 选一块备用表(扫表身二维码 / 输入编号 / 直接点选)</h2>
+      <div class="row"><input id="sn" placeholder="扫备用表二维码或输入编号" autocomplete="off" style="flex:1"><button id="snbtn">确定</button></div>
+      <div class="row" style="margin:12px 0 4px">原表情况:
+        <label><input type="radio" name="old" value="CHARGING" checked> 没电,待充电</label>
+        <label><input type="radio" name="old" value="FAULT"> 故障,待检修</label>
+      </div>
+      <div class="grid" id="pickpool" style="margin-top:10px"></div>
+    </section>
+
+    <section id="confirmbox" class="hide">
+      <h2>④ 确认换表</h2>
+      <div id="sum" class="sum"></div>
+      <div class="row" style="margin-top:12px"><button id="go" class="okb" style="font-size:20px;padding:14px 26px">✓ 确认替换绑定</button><button id="cancel">取消</button></div>
+    </section>
+    <div id="result"></div>
+  </div>
+
+  <div id="v-pool" class="hide">
+    <section>
+      <h2>备用池(电量低于 <span id="minb">80</span>% 的表不能借出)</h2>
+      <div class="grid" id="poolgrid"></div>
+      <div id="poolmsg"></div>
+    </section>
+    <section id="adminbox" class="hide">
+      <h2>全部手表(后台调整:只有主密钥可用)</h2>
+      <table><thead><tr><th>编号</th><th>状态</th><th>佩戴人 / 归属</th><th>电量</th><th>在线</th><th>备注</th><th></th></tr></thead><tbody id="alltb"></tbody></table>
+    </section>
+  </div>
+
+  <div id="v-log" class="hide">
+    <section>
+      <h2>操作日志(只读)</h2>
+      <div class="row">
+        <input id="f-staff" placeholder="员工工号" style="width:140px">
+        <input id="f-sn" placeholder="手表编号" style="width:140px">
+        <select id="f-act"><option value="">全部操作</option><option value="SWAP_IN">换表</option><option value="ROLLBACK">回绑原表</option><option value="RELEASE">收回</option><option value="RESET">清空完成</option><option value="ADJUST">后台调整</option></select>
+        <input id="f-day" type="date">
+        <button id="f-go" class="pri">查询</button>
+      </div>
+      <table style="margin-top:10px"><thead><tr><th>时间</th><th>操作</th><th>员工</th><th>手表</th><th>操作人 / 入口</th><th>摘要</th></tr></thead><tbody id="logtb"></tbody></table>
+    </section>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const el = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
+const ACT = {SWAP_IN: '换表', SWAP_OUT: '换出', ROLLBACK: '回绑原表', RELEASE: '收回/归还', RESET: '清空完成', ADJUST: '后台调整', BIND: '领用'};
+const SRC = {NURSE_STATION: '护士站', WATCH_BUTTON: '手表一键归位', ADMIN: '后台', WATCH: '手表', CONFIG: '初始配置'};
+let role = null, staff = null, card = null, chosen = null, pool = [];
+
+function getKey() {
+  const q = new URLSearchParams(location.search).get('key');
+  if (q) { try { localStorage.setItem('bycall_swap_key', q); } catch (e) {} history.replaceState(null, '', location.pathname); }
+  try { return localStorage.getItem('bycall_swap_key') || localStorage.getItem('bycall_key') || ''; } catch (e) { return ''; }
+}
+function askKey() {
+  const k = prompt('请输入换表密钥(或主机密钥)', getKey());
+  if (k !== null) { try { localStorage.setItem('bycall_swap_key', k.trim()); } catch (e) {} init(); }
+}
+$('key').onclick = askKey;
+async function api(path, opt) {
+  opt = opt || {};
+  const r = await fetch(path, {method: opt.method || 'GET', cache: 'no-store',
+    headers: Object.assign({'X-Api-Key': getKey()}, opt.body ? {'Content-Type': 'application/json'} : {}),
+    body: opt.body ? JSON.stringify(opt.body) : undefined});
+  let j = null; try { j = await r.json(); } catch (e) {}
+  if (r.status === 401) { askKey(); throw new Error('密钥不对'); }
+  if (!r.ok) throw new Error((j && j.detail) || ('失败 ' + r.status));
+  return j;
+}
+const t = iso => iso ? new Date(iso).toLocaleString('zh-CN', {hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'}) : '—';
+function msg(box, kind, text) { box.replaceChildren(el('div', 'msg ' + kind, text)); }
+function show(tab) {
+  ['swap', 'pool', 'log'].forEach(x => { $('v-' + x).classList.toggle('hide', x !== tab); $('t-' + x).classList.toggle('on', x === tab); });
+  if (tab === 'pool') loadPool(); if (tab === 'log') loadLog();
+}
+$('t-swap').onclick = () => show('swap'); $('t-pool').onclick = () => show('pool'); $('t-log').onclick = () => show('log');
+
+// ---- ① 找人 ----
+async function find() {
+  const q = $('q').value.trim(), box = $('qres'); box.replaceChildren();
+  if (!q) return;
+  let list; try { list = await api('/swap/staff?q=' + encodeURIComponent(q)); } catch (e) { return msg(box, 'bad', e.message); }
+  if (!list.length) return msg(box, 'bad', '没找到这位员工');
+  if (list.length === 1 && (list[0].employee_no === q || list[0].staff === q)) return pickStaff(list[0].staff);
+  list.forEach(s => { const b = el('button', null, s.name + '(' + s.employee_no + ')' + (s.watch ? ' · ' + s.watch : ' · 未戴表')); b.onclick = () => pickStaff(s.staff); box.appendChild(b); });
+}
+$('qbtn').onclick = find;
+$('q').onkeydown = e => { if (e.key === 'Enter') find(); };
+
+// ---- ② 班次 ----
+async function pickStaff(id) {
+  staff = id; chosen = null; $('qres').replaceChildren(); $('result').replaceChildren(); $('rbmsg').replaceChildren();
+  try { card = await api('/swap/staff/' + encodeURIComponent(id)); } catch (e) { return msg($('qres'), 'bad', e.message); }
+  renderCard(); $('staffbox').classList.remove('hide'); $('pickbox').classList.remove('hide'); $('confirmbox').classList.add('hide');
+  await loadPickPool(); $('sn').focus();
+}
+function renderCard() {
+  const c = card, k = $('card'); k.replaceChildren();
+  const w = c.watch, add = (a, b) => { k.append(el('b', null, a), el('span', null, b)); };
+  add('员工', c.name + '  · 工号 ' + c.employee_no + (c.role ? ' · ' + c.role : ''));
+  add('班次', (c.shift === 'day' ? '白班' : '夜班') + (c.on_duty ? '' : '(未在岗)'));
+  add('当前手表', w ? w.sn + (c.wearing_spare ? '(备用表)' : '') + ' · 电量 ' + (w.battery != null ? w.battery + '%' : '未知') + ' · ' + (w.online ? '在线' : '离线') : '未戴表');
+  if (c.wearing_spare && c.home_watch) add('自己的表', c.home_watch.sn + ' · ' + c.home_watch.status_text + ' · 电量 ' + (c.home_watch.battery != null ? c.home_watch.battery + '%' : '未知') + ' · ' + (c.home_watch.online ? '在线' : '离线'));
+  add('服务房间', c.rooms.length ? c.rooms.map(r => r.room_no).join('、') + '(' + c.rooms.length + ' 间)' : (c.floors.length ? c.floors.join('、') + ' 层' : '—'));
+  add('未闭环事件', c.open_events + ' 条' + (c.open_events ? '(待接单 ' + c.ringing + ' / 处理中 ' + c.open_calls + (c.help_open ? ' / 自己发出的求助 1' : '') + ')' : ''));
+  if (c.unreachable) add('提醒', '这块表连续收不到派单,建议换表');
+  $('rbbtn').classList.toggle('hide', !c.wearing_spare);
+}
+
+// ---- ③ 选备用表 ----
+async function loadPickPool() {
+  try { const r = await api('/swap/pool'); pool = r.pool; banner(r.problems); } catch (e) { return; }
+  const g = $('pickpool'); g.replaceChildren();
+  pool.forEach(w => g.appendChild(watchCard(w, () => choose(w.sn), !w.available)));
+  if (!pool.length) g.appendChild(el('div', null, '备用池里还没有登记备用表(门店配置 spare_watches)'));
+}
+function watchCard(w, onClick, disabled) {
+  const b = el('div', 'w' + (disabled ? ' dis' : '') + (chosen === w.sn ? ' sel' : ''));
+  b.appendChild(el('div', 'sn', w.sn));
+  const bar = el('div', 'bar'), i = el('i', w.low ? 'low' : ''); i.style.width = (w.battery || 0) + '%'; bar.appendChild(i); b.appendChild(bar);
+  b.appendChild(el('div', 't', (w.battery != null ? (w.charging ? '⚡' : '') + w.battery + '% · ' : '') + (w.online ? '在线' : '离线') + ' · ' + w.status_text + (w.bound_name ? ' · ' + w.bound_name : '')));
+  b.appendChild(el('div', 't', '上次清空:' + t(w.last_reset_time)));
+  if (disabled && w.reason) b.appendChild(el('div', 't', w.reason)).style.color = 'var(--warn)';
+  if (!disabled) b.onclick = onClick;
+  return b;
+}
+async function choose(sn) {
+  sn = (sn || '').trim(); if (!sn || !staff) return;
+  chosen = sn; await loadPickPool();
+  let r; try { r = await api('/swap/check?staff=' + encodeURIComponent(staff) + '&sn=' + encodeURIComponent(sn)); } catch (e) { return msg($('result'), 'bad', e.message); }
+  const s = $('sum'); s.replaceChildren(); $('confirmbox').classList.remove('hide'); $('result').replaceChildren();
+  const line = (a, b) => { const d = el('div'); d.append(el('b', null, a), document.createTextNode(b)); s.appendChild(d); };
+  const c = r.card, o = c.watch, n = r.new;
+  line('员工:', c.name + '(' + c.employee_no + ')');
+  line('原表:', o ? o.sn + '(电量 ' + (o.battery != null ? o.battery + '%' : '未知') + ',' + (document.querySelector('input[name=old]:checked').value === 'FAULT' ? '故障' : '低电') + ')' : '无');
+  line('新表:', n ? n.sn + '(电量 ' + (n.battery != null ? n.battery + '%' : '未知') + ')' : sn);
+  line('将同步:', '服务房间 ' + c.rooms.length + ' 个、未闭环事件 ' + c.open_events + ' 条');
+  if (r.already) { $('go').disabled = true; s.appendChild(el('div', 'msg info', '这块表已经绑定给该员工,不需要再换')); }
+  else if (!r.ok) { $('go').disabled = true; r.problems.forEach(p => s.appendChild(el('div', 'msg bad', '✗ ' + p))); }
+  else { $('go').disabled = false; s.appendChild(el('div', 'msg ok', '✓ 校验通过,可以换表')); }
+}
+$('snbtn').onclick = () => choose($('sn').value);
+$('sn').onkeydown = e => { if (e.key === 'Enter') choose($('sn').value); };
+document.querySelectorAll('input[name=old]').forEach(x => x.onchange = () => chosen && choose(chosen));
+$('cancel').onclick = () => { chosen = null; $('confirmbox').classList.add('hide'); loadPickPool(); };
+
+// ---- ④ 确认 ----
+$('go').onclick = async () => {
+  $('go').disabled = true;
+  try {
+    const r = await api('/swap', {method: 'POST', body: {staff, sn: chosen, old_state: document.querySelector('input[name=old]:checked').value}});
+    msg($('result'), 'ok', r.message + (r.old_watch ? '。原表 ' + r.old_watch + ' 请放到充电位/检修处。' : ''));
+    $('confirmbox').classList.add('hide'); $('sn').value = ''; chosen = null;
+    card = await api('/swap/staff/' + encodeURIComponent(staff)); renderCard(); loadPickPool();
+  } catch (e) { msg($('result'), 'bad', '换表失败:' + e.message); $('go').disabled = false; }
+};
+
+// ---- 回绑 ----
+$('rbbtn').onclick = async () => {
+  let r; try { r = await api('/swap/rollback-check?staff=' + encodeURIComponent(staff)); } catch (e) { return msg($('rbmsg'), 'bad', e.message); }
+  if (!r.ok) return msg($('rbmsg'), 'bad', '暂不能切回:' + r.problems.join(';'));
+  const c = r.card, extra = c.open_events ? '\n当前有 ' + c.open_events + ' 条未闭环事件,会一起转到原表上。' : '';
+  if (!confirm('切回原表 ' + c.home_watch.sn + '(电量 ' + c.home_watch.battery + '%)?\n备用表 ' + c.watch.sn + ' 会被清空并放回备用池。' + extra)) return;
+  try { const x = await api('/swap/rollback', {method: 'POST', body: {staff}}); msg($('rbmsg'), 'ok', x.message); card = await api('/swap/staff/' + encodeURIComponent(staff)); renderCard(); loadPickPool(); }
+  catch (e) { msg($('rbmsg'), 'bad', e.message); }
+};
+
+// ---- 备用池 / 后台 ----
+function banner(problems) { const b = $('poolwarn'); b.classList.toggle('hide', !problems.length); b.textContent = problems.length ? '⚠ ' + problems.join(';') : ''; }
+async function loadPool() {
+  let r; try { r = await api('/swap/pool'); } catch (e) { return msg($('poolmsg'), 'bad', e.message); }
+  pool = r.pool; banner(r.problems); $('minb').textContent = r.min_battery;
+  const g = $('poolgrid'); g.replaceChildren();
+  pool.forEach(w => {
+    const c = watchCard(w, null, false); c.style.cursor = 'default';
+    if (w.bound_staff) { const b = el('button', 'warnb', '收回(不切回原表)'); b.style.marginTop = '8px'; b.onclick = async () => {
+      if (!confirm('收回备用表 ' + w.sn + '?会解除与 ' + w.bound_name + ' 的绑定并清空表内数据。\n如果是原表充好了,请改用“切回原表”。')) return;
+      try { const x = await api('/swap/release', {method: 'POST', body: {sn: w.sn}}); msg($('poolmsg'), 'ok', x.message); loadPool(); } catch (e) { msg($('poolmsg'), 'bad', e.message); } }; c.appendChild(b); }
+    g.appendChild(c);
+  });
+  if (!pool.length) g.appendChild(el('div', null, '备用池里还没有登记备用表(门店配置 spare_watches)'));
+  $('adminbox').classList.toggle('hide', role !== 'admin');
+  if (role === 'admin') loadAll();
+}
+async function loadAll() {
+  let list; try { list = await api('/watches'); } catch (e) { return; }
+  const tb = $('alltb'); tb.replaceChildren();
+  list.forEach(w => {
+    const tr = el('tr');
+    [w.sn, w.status_text, (w.bound_name || '—') + (w.home_name && w.home_name !== w.bound_name ? ' / 归属 ' + w.home_name : w.spare ? ' / 备用' : ''),
+     w.battery != null ? w.battery + '%' : '—', w.online ? '在线' : '离线', w.note || ''].forEach(x => tr.appendChild(el('td', null, x)));
+    const td = el('td'), sel = el('select');
+    [['', '调整为…'], ['FAULT', '标记故障'], ['IDLE', '放回备用池'], ['CHARGING', '待充电'], ['RESETTING', '手动重置(清空)']].forEach(([v, n]) => { const o = el('option', null, n); o.value = v; sel.appendChild(o); });
+    sel.onchange = async () => {
+      if (!sel.value) return;
+      const note = sel.value === 'FAULT' ? prompt('故障原因(可留空)', w.note || '') : null;
+      try { await api('/watches/' + encodeURIComponent(w.sn) + '/status', {method: 'PUT', body: {status: sel.value, note}}); loadPool(); }
+      catch (e) { alert(e.message); sel.value = ''; }
+    };
+    td.appendChild(sel); tr.appendChild(td); tb.appendChild(tr);
+  });
+}
+
+// ---- 日志 ----
+async function loadLog() {
+  const p = new URLSearchParams();
+  if ($('f-staff').value.trim()) p.set('staff', $('f-staff').value.trim());
+  if ($('f-sn').value.trim()) p.set('sn', $('f-sn').value.trim());
+  if ($('f-act').value) p.set('action', $('f-act').value);
+  if ($('f-day').value) { const d = new Date($('f-day').value + 'T00:00:00'); p.set('since', d.toISOString()); p.set('until', new Date(d.getTime() + 86400000).toISOString()); }
+  let rows; try { rows = await api('/swap/log?' + p); } catch (e) { return; }
+  const tb = $('logtb'); tb.replaceChildren();
+  rows.forEach(r => {
+    const d = r.detail || {}, tr = el('tr');
+    const sum = [d.rooms && d.rooms.length ? '房间 ' + d.rooms.join('、') : '', d.open_events != null ? '未闭环 ' + d.open_events + ' 条' : '', d.status ? '→ ' + d.status : '', d.note || ''].filter(Boolean).join(' · ');
+    [t(r.operate_time), ACT[r.action_type] || r.action_type, r.staff_name || r.staff_id || '—', (r.watch_sn_from || '') + (r.watch_sn_to ? ' → ' + r.watch_sn_to : ''),
+     (r.operator_name || r.operator_id || '') + ' / ' + (SRC[r.operate_source] || r.operate_source || ''), sum].forEach(x => tr.appendChild(el('td', null, x)));
+    tb.appendChild(tr);
+  });
+  if (!rows.length) { const tr = el('tr'), td = el('td', null, '没有记录'); td.colSpan = 6; tr.appendChild(td); tb.appendChild(tr); }
+}
+$('f-go').onclick = loadLog;
+
+async function init() {
+  if (!getKey()) return askKey();
+  try { const w = await api('/swap/whoami'); role = w.role; $('who').textContent = '门店 ' + w.store_id + ' · ' + (role === 'admin' ? '管理员' : '换表管理员'); } catch (e) { return; }
+  loadPickPool(); $('q').focus();
+}
+init();
+setInterval(() => { if (!$('v-swap').classList.contains('hide') && staff && !chosen) loadPickPool(); }, 10000);
+</script>
+</body>
+</html>

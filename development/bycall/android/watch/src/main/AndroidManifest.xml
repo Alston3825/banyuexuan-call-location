@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    <!-- BLE beacon scanning. No neverForLocation flag: that flag hides beacons from scan results. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"/>
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.BODY_SENSORS"/>
+    <!-- 2026-11-17:同事语音(按住说话)、Wi-Fi 信号上报、被杀后自动拉起 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32"/>
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false"/>
+    <application android:name=".WatchApp" android:label="伴月轩护理端" android:usesCleartextTraffic="true">
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask"
+            android:showWhenLocked="true" android:turnScreenOn="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <!-- 可设为默认桌面:抬腕亮屏直接是本应用首页,按 Home 也回到这里(在设置页可跳到系统设置更换桌面) -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.HOME"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+        </activity>
+        <service android:name=".WatchService" android:exported="false" android:foregroundServiceType="connectedDevice"/>
+        <!-- 每 15 分钟检查一次:服务没在跑就拉起来 -->
+        <service android:name=".KeepAliveJob" android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE"/>
+        <receiver android:name=".BootReceiver" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED"/><action android:name="android.intent.action.MY_PACKAGE_REPLACED"/></intent-filter>
+        </receiver>
+        <!-- Debug only: feed fake beacon readings (emulator has no BLE). -->
+        <receiver android:name=".DebugReceiver" android:exported="true">
+            <intent-filter><action android:name="cn.banyuexuan.call.watch.FAKE_BEACON"/></intent-filter>
+        </receiver>
+    </application>
+</manifest>

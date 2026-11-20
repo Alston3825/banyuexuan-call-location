@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>手表续航与送达测试报表</title>
+<style>
+:root{--bg:#0f1720;--panel:#18222e;--line:#263444;--text:#e8eef5;--mute:#8a9bb0;--ok:#3ecf8e;--warn:#f5a524;--bad:#ff4d4f;--blue:#4c9aff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+header{display:flex;gap:12px;align-items:center;padding:10px 16px;background:#0b1118;border-bottom:1px solid var(--line)}
+header h1{font-size:19px;margin:0}
+main{padding:14px;max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+h2{margin:0 0 10px;font-size:16px;color:var(--mute)}
+select,button{font-size:16px;padding:6px 12px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--text)}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th,td{text-align:left;padding:7px 6px;border-bottom:1px solid var(--line)}
+th{color:var(--mute);font-weight:400}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+.big{font-size:28px;font-weight:700;font-variant-numeric:tabular-nums}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+.cards div{background:#1d2937;border-radius:10px;padding:10px 12px}
+.cards small{color:var(--mute);display:block}
+svg{display:block}
+</style>
+</head>
+<body>
+<header><h1>手表续航与送达测试报表</h1><span style="flex:1"></span>
+  统计最近 <select id="h"><option>2</option><option>6</option><option selected>12</option><option>24</option><option>48</option></select> 小时
+  <button id="go">刷新</button><button id="csv">下载电量 CSV</button></header>
+<main>
+  <section><h2>派单送达(目标:2 秒内送达,不漏呼)</h2><div class="cards" id="dl"></div><table style="margin-top:10px"><thead><tr><th>类型</th><th>派单数</th><th>收到回执</th><th>超过 2 秒</th><th>重发过</th><th>始终收不到</th></tr></thead><tbody id="kinds"></tbody></table></section>
+  <section><h2>手表电量(目标:一个班次后剩余 20% 以上;电量每 15 分钟记一次)</h2>
+    <table><thead><tr><th>手表</th><th>佩戴人</th><th>开始</th><th>最新</th><th>平均每小时耗电</th><th>掉电最快的时段</th><th>曲线</th></tr></thead><tbody id="bat"></tbody></table></section>
+  <section><h2>同事沟通</h2><div id="chat"></div></section>
+  <div id="err" class="bad"></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const el = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
+let data = null;
+function key() {
+  const q = new URLSearchParams(location.search).get('key');
+  if (q) { try { localStorage.setItem('bycall_key', q); } catch (e) {} history.replaceState(null, '', location.pathname); }
+  try { return localStorage.getItem('bycall_key') || ''; } catch (e) { return ''; }
+}
+const t = iso => iso ? new Date(iso).toLocaleString('zh-CN', {hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'}) : '—';
+const hm = iso => iso ? new Date(iso).toLocaleTimeString('zh-CN', {hour12: false, hour: '2-digit', minute: '2-digit'}) : '';
+function spark(points) {
+  const W = 220, H = 44, ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('width', W); svg.setAttribute('height', H);
+  if (points.length < 2) return svg;
+  const t0 = Date.parse(points[0].at), t1 = Date.parse(points[points.length - 1].at) || t0 + 1;
+  const xy = p => [(Date.parse(p.at) - t0) / Math.max(1, t1 - t0) * (W - 4) + 2, H - 2 - p.battery / 100 * (H - 4)];
+  const line = document.createElementNS(ns, 'polyline');
+  line.setAttribute('points', points.map(p => xy(p).join(',')).join(' '));
+  line.setAttribute('fill', 'none'); line.setAttribute('stroke', '#4c9aff'); line.setAttribute('stroke-width', '2');
+  const y20 = document.createElementNS(ns, 'line'), y = H - 2 - 0.2 * (H - 4);
+  [['x1', 0], ['x2', W], ['y1', y], ['y2', y], ['stroke', '#ff4d4f'], ['stroke-dasharray', '3 3']].forEach(([k, v]) => y20.setAttribute(k, v));
+  svg.append(y20, line);
+  return svg;
+}
+async function load() {
+  $('err').textContent = '';
+  const r = await fetch('/reports/watch-test?hours=' + $('h').value, {headers: {'X-Api-Key': key()}, cache: 'no-store'});
+  if (!r.ok) { $('err').textContent = r.status === 401 ? '密钥不对:请在地址后加 ?key=主机密钥' : '读取失败 ' + r.status; return; }
+  data = await r.json();
+  const d = data.delivery, dl = $('dl'); dl.replaceChildren();
+  const card = (label, v, cls) => { const c = el('div'); c.append(el('small', null, label), el('div', 'big ' + (cls || ''), v)); dl.appendChild(c); };
+  const ms = v => v == null ? '—' : (v / 1000).toFixed(1) + ' 秒';
+  card('已统计的派单', d.count || 0);
+  card('送达耗时(中位数)', ms(d.p50_ms), d.p50_ms > 2000 ? 'bad' : 'ok');
+  card('送达耗时(95%)', ms(d.p95_ms), d.p95_ms > 2000 ? 'bad' : 'ok');
+  card('最慢一次', ms(d.max_ms), d.max_ms > 2000 ? 'warn' : '');
+  card('接单用时(中位数)', data.claim_seconds.median == null ? '—' : data.claim_seconds.median + ' 秒');
+  const kt = $('kinds'); kt.replaceChildren();
+  Object.entries(d.by_kind).forEach(([k, v]) => { const tr = el('tr');
+    [k === 'help' ? '同事求助' : '客户呼叫', v.sent, v.received, v.over_2s, v.resent, v.failed].forEach((x, i) => tr.appendChild(el('td', i === 5 && x ? 'bad' : i === 3 && x ? 'warn' : '', x))); kt.appendChild(tr); });
+  if (!Object.keys(d.by_kind).length) { const tr = el('tr'), td = el('td', null, '这段时间没有派单(需要新版手表 APK 回执才能统计)'); td.colSpan = 6; tr.appendChild(td); kt.appendChild(tr); }
+  const bt = $('bat'); bt.replaceChildren();
+  data.watches.forEach(w => { const tr = el('tr');
+    tr.append(el('td', null, w.watch), el('td', null, w.name || '—'), el('td', null, w.first.battery + '% · ' + t(w.first.at)),
+      el('td', w.last.battery < 20 ? 'bad' : '', w.last.battery + '% · ' + t(w.last.at)),
+      el('td', null, w.per_hour == null ? '—' : w.per_hour + '%/小时'),
+      el('td', null, w.worst ? w.worst.per_hour + '%/小时(' + hm(w.worst.start) + '–' + hm(w.worst.end) + ')' : '—'));
+    const td = el('td'); td.appendChild(spark(w.points)); tr.appendChild(td); bt.appendChild(tr); });
+  if (!data.watches.length) { const tr = el('tr'), td = el('td', null, '还没有电量记录'); td.colSpan = 7; tr.appendChild(td); bt.appendChild(tr); }
+  const names = {quick: '快捷回复', text: '文字', voice: '语音'};
+  $('chat').textContent = Object.keys(data.chat).length ? Object.entries(data.chat).map(([k, n]) => (names[k] || k) + ' ' + n + ' 条').join(' · ') : '这段时间没有同事消息';
+}
+$('go').onclick = load; $('h').onchange = load;
+$('csv').onclick = () => {
+  if (!data) return;
+  const rows = [['手表', '佩戴人', '时间', '电量', '充电中']];
+  data.watches.forEach(w => w.points.forEach(p => rows.push([w.watch, w.name || '', p.at, p.battery, p.charging ? '是' : '否'])));
+  const blob = new Blob(['﻿' + rows.map(r => r.join(',')).join('\n')], {type: 'text/csv'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '手表电量-' + new Date().toISOString().slice(0, 10) + '.csv'; a.click();
+};
+load();
+</script>
+</body>
+</html>
