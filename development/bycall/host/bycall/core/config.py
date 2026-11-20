@@ -55,6 +55,7 @@ class StoreConfig:
 # 手表行为参数:主机随 WATCH_BIND 推给手表,改配置后手表重连即生效
 WATCH_DEFAULTS = dict(
     scan_on_s=2, scan_period_s=10,       # 蓝牙信标间歇扫描:每 10 秒扫 2 秒(安卓限制 30 秒内最多启动 5 次,周期不能小于 7 秒)
+    heart_rate_interval_s=60,            # 默认每分钟采样一次，可远程改30–300秒
     heartbeat_s=30,                      # 在线心跳(很小的包);电量随心跳上报,主机按 battery_log_minutes 记一次
     battery_log_minutes=15,
     help_hold_ms=1000,                   # 求助按钮需按住多久才发出

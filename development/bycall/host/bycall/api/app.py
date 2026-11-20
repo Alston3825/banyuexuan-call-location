@@ -491,9 +491,11 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
         for v in svc.location_views():
             if v['staff'] is None:
                 continue
-            items.append({k: v[k] for k in ('watch', 'staff', 'online', 'location_status', 'location_reason',
+            item = {k: v[k] for k in ('watch', 'staff', 'online', 'location_status', 'location_reason',
                 'room', 'area', 'floor', 'precision', 'coordinates', 'received_at', 'observed_at',
-                'age_seconds', 'stale_after_seconds')})
+                'age_seconds', 'stale_after_seconds')}
+            item['zone_id'] = v['beacon'] if v['location_status'] == 'fresh' else None
+            items.append(item)
         return dict(schema='bycall.location.v1', store_id=store, server_time=svc._now().isoformat(), items=items)
 
     @app.get('/nurses/{staff}/vitals', dependencies=[Depends(auth)])

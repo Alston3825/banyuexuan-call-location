@@ -124,7 +124,7 @@ section.watch-panel h2{padding:10px 14px;flex-wrap:wrap;gap:10px}
     <section class="watch-panel">
       <h2>手表与护理师 <b id="n-watch">—</b><span class="watch-summary" id="slot-count">60 个位置</span><span class="sp" style="flex:1"></span><button id="swapbtn" title="护士站换表/回绑">⌚ 换表</button></h2>
       <div class="body" id="watches"></div>
-      <div class="watch-footnote">体征为最近一次真实采样；心率目前每5分钟采一次。血压无真实上报则显示“未提供”。位置过期不沿用旧值。</div>
+      <div class="watch-footnote">体征为最近一次真实采样；心率默认每分钟采一次。血压无真实上报则显示“未提供”。位置过期不沿用旧值。</div>
     </section>
   </div>
 </main>
@@ -401,9 +401,9 @@ function updateWatchMeasurements(card) {
   const current = now();
   for (const kind of ['heart','pressure']) {
     const span=card.querySelector('[data-metric="'+kind+'"]'), at=Date.parse(span.dataset.at||'');
-    const age=(current-at)/1000, fresh=span.dataset.state==='fresh'&&Number.isFinite(age)&&age>=-30&&age<=600;
+    const age=(current-at)/1000, fresh=span.dataset.state==='fresh'&&Number.isFinite(age)&&age>=-30&&age<=Number(span.dataset.ttl||600);
     span.textContent=fresh?span.dataset.value:(span.dataset.state==='no_data'?'未提供':'—');
-    span.title=fresh?'真实采样 '+new Date(at).toLocaleTimeString('zh-CN'):(span.dataset.state==='no_data'?'没有收到真实测量数据':'采样过期或设备离线');
+    span.title=fresh?(kind==='heart'?'心率（次/分）真实采样 ':'血压（mmHg）真实采样 ')+new Date(at).toLocaleTimeString('zh-CN'):(span.dataset.state==='no_data'?'没有收到真实测量数据':'采样过期或设备离线');
   }
   const location=card.querySelector('.watch-location .value');
   const expired=location.dataset.state==='fresh'&&current-Date.parse(location.dataset.at||'')>Number(location.dataset.ttl)*1000;
@@ -424,7 +424,7 @@ function renderWatches(list) {
     st.title=(w.last_seen?'最后心跳 '+new Date(w.last_seen).toLocaleString('zh-CN'):'尚无在线记录')+(w.unreachable?' · 收不到派单':'')+(w.status_text?' · '+w.status_text:'');
     const battery=el('span','bat',w.battery==null?'':(w.charging?'⚡':'电量 ')+w.battery+'%');status.append(st,battery);
     const metrics=el('div','watch-metrics');
-    const metric=(key,label,value,state,at)=>{const wrap=el('span','metric');wrap.append(el('small',null,label+' '));const v=el('strong');v.dataset.metric=key;v.dataset.value=value;v.dataset.state=state||'no_data';v.dataset.at=at||'';wrap.append(v);return wrap};
+    const metric=(key,label,value,state,at)=>{const wrap=el('span','metric');wrap.append(el('small',null,label+' '));const v=el('strong');v.dataset.metric=key;v.dataset.value=value;v.dataset.state=state||'no_data';v.dataset.at=at||'';v.dataset.ttl=key==='heart'?(w.heart_rate_ttl_seconds||120):(w.blood_pressure_ttl_seconds||600);wrap.append(v);return wrap};
     metrics.append(metric('heart','心率',w.heart_rate==null?'':String(w.heart_rate),w.heart_rate_state,w.heart_rate_at),metric('pressure','血压',w.blood_pressure?w.blood_pressure.systolic+'/'+w.blood_pressure.diastolic:'',w.blood_pressure_state,w.blood_pressure_at));
     const loc=el('div','watch-location'),value=el('span','value');
     const label=w.location_status==='fresh'?(w.location_area||w.location_room||'已定位'):w.location_status==='stale'?'位置已过期':w.location_reason==='scan_error'?'扫描异常':w.location_reason==='unbound'?'未佩戴':w.location_reason==='simulated'?'测试观测':'位置未知';

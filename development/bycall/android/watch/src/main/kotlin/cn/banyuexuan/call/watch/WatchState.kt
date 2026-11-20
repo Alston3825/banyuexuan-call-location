@@ -24,6 +24,7 @@ object WatchState {
     @Volatile var charging = false
     const val LOW_BATTERY = 20                        // 低于此值(且未在充电)提示充电;主机在护士站同步提醒
     val lowBattery get() = battery < LOW_BATTERY && !charging
+    @Volatile var heartRateIntervalS = 60
     @Volatile var where = "—"                         // last located area
     @Volatile var notice: String? = null              // one-shot message (e.g. rejected command)
     @Volatile var appUpdateSeq = 0                    // 主机每通知一次“有新版本”就加 1,界面据此马上检查更新

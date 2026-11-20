@@ -109,6 +109,17 @@ class RemoteConfigTest {
         assertEquals("", cfg["beacon_uuid"])
     }
 
+    @Test fun heartRateIntervalSupportsRemoteUpdatesAndRejectsUnsafeRange() {
+        val cfg = MemoryConfig()
+        val r = RemoteConfig(cfg, "watch", {}, {})
+        r.receive(command(1, JSONObject().put("heart_rate_interval_s", 60)))
+        assertEquals("60", cfg["heart_rate_interval_s"])
+        assertEquals("applied", state(r).getString("terminal_result"))
+        r.receive(command(2, JSONObject().put("heart_rate_interval_s", 1)))
+        assertEquals("60", cfg["heart_rate_interval_s"])
+        assertEquals("failed", state(r).getString("terminal_result"))
+    }
+
     @Test fun failedPreferenceWriteNeverReportsApplied() {
         val cfg = MemoryConfig(); cfg.fail = true; var changed = false
         val r = RemoteConfig(cfg, "watch", { changed = true }, {})

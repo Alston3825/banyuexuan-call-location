@@ -74,6 +74,23 @@ class TestStationCards(Base):
         self.assertEqual(self.svc.tele.vitals('n01'),[])
         self.assertEqual(self.svc.rejected_count,4)
 
+    def test_heart_rate_interval_and_shorter_freshness(self):
+        self.vitals(heart_rate=78)
+        self.clock.advance(121);self.online('w-01')
+        self.assertIsNone(self.card()['heart_rate'])
+        self.assertEqual(self.card()['heart_rate_ttl_seconds'],120)
+        c=self.svc.terminal_configs
+        c.save('watch',['w-01'],dict(heart_rate_interval_s=300),{'w-01':0})
+        self.assertEqual(self.card()['heart_rate'],78)
+        self.assertEqual(self.card()['heart_rate_ttl_seconds'],600)
+
+    def test_previous_wearer_report_cannot_be_attributed_to_new_binding(self):
+        self.vitals(heart_rate=78,staff='different-employee')
+        self.assertEqual(self.svc.tele.vitals('n01'),[])
+        self.send(P.t_location(S,'w-01'),'w-01',P.LOCATION_REPORT,
+                  dict(staff='different-employee',readings=[dict(beacon_id='bcn-1601',rssi=-50)]))
+        self.assertEqual(next(x for x in self.svc.location_views() if x['watch']=='w-01')['location_reason'],'not_observed')
+
     def test_previous_watch_measurements_not_shown_on_replacement(self):
         self.vitals(heart_rate=78,systolic=120,diastolic=80)
         # A different SN worn by the same employee must not inherit the old equipment's sample.

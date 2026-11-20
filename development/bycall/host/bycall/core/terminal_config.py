@@ -31,6 +31,7 @@ SCHEMAS = {
     'watch': {
         **CONNECTION,
         'heartbeat_s': field('心跳间隔（秒）', 'int', 30, 10, 30),
+        'heart_rate_interval_s': field('心率采样间隔（秒，越频繁越耗电）', 'int', 60, 30, 300),
         'report_seconds': field('位置上报间隔（秒）', 'int', 10, 7, 60, '蓝牙信标'),
         'beacon_uuid': field('本店信标 UUID（空值接受所有 UUID）', 'uuid', '', section='蓝牙信标'),
         'scan_on_s': field('每次扫描时长（秒）', 'int', 2, 1, 60, '蓝牙信标'),

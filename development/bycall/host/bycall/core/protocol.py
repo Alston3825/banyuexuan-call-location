@@ -75,6 +75,7 @@ class Reading(BaseModel):
 
 
 class LocationPayload(BaseModel):
+    staff: Optional[str] = Field(default=None, max_length=100)
     readings: List[Reading] = Field(max_length=128)
     sampled_at: Optional[datetime] = None
     report_interval_s: Optional[int] = Field(default=None, ge=7, le=60)
@@ -84,6 +85,7 @@ class LocationPayload(BaseModel):
 
 
 class VitalsPayload(BaseModel):
+    staff: Optional[str] = Field(default=None, max_length=100)
     heart_rate: Optional[int] = Field(default=None, ge=20, le=250)
     spo2: Optional[int] = Field(default=None, ge=50, le=100)
     temperature: Optional[float] = Field(default=None, ge=30, le=45)

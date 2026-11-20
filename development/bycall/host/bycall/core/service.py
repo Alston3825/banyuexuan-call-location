@@ -771,7 +771,7 @@ class HostService:
 
     # ---- 手表绑定 / 换表 / 回绑 / 归还 ---------------------------------
     def watch_settings(self):
-        w = {k: self.opt('watch', k) for k in ('scan_on_s', 'scan_period_s', 'heartbeat_s', 'help_hold_ms', 'wifi_lock', 'cpu_lock')}
+        w = {k: self.opt('watch', k) for k in ('scan_on_s', 'scan_period_s', 'heartbeat_s', 'heart_rate_interval_s', 'help_hold_ms', 'wifi_lock', 'cpu_lock')}
         w.update(quick_replies=self.opt('chat', 'quick_replies'), voice_max_s=self.opt('chat', 'voice_max_s'))
         return w
 
@@ -994,7 +994,11 @@ class HostService:
         staff, watch = reg.get('bound_staff'), reg['sn']
         if not staff:
             return out
+        interval = self.terminal_configs.get('watch', watch)['settings'].get('heart_rate_interval_s', self.opt('watch', 'heart_rate_interval_s'))
+        heart_ttl = max(90, min(600, int(interval) * 2))
+        out['heart_rate_ttl_seconds'], out['blood_pressure_ttl_seconds'] = heart_ttl, 600
         for kind in ('heart_rate', 'blood_pressure'):
+            ttl = heart_ttl if kind == 'heart_rate' else 600
             sample = self.tele.latest_vital_sample(staff, watch, kind, reg.get('last_bind_time'))
             if not sample:
                 continue
@@ -1002,7 +1006,7 @@ class HostService:
             try:
                 sample_age = (self._now() - datetime.fromisoformat(observed)).total_seconds()
                 receipt_age = (self._now() - datetime.fromisoformat(sample['at'])).total_seconds()
-                fresh = -30 <= sample_age <= 600 and -30 <= receipt_age <= 600
+                fresh = -30 <= sample_age <= ttl and -30 <= receipt_age <= ttl
             except (ValueError, TypeError):
                 fresh = False
             state = 'offline' if not online else 'fresh' if fresh else 'stale'
@@ -1161,6 +1165,8 @@ class HostService:
             return self._reject(env, 'unknown_device')
         staff = self.staff_of_watch(env.device_id)
         p = P.LocationPayload(**env.payload)
+        if 'staff' in p.model_fields_set and p.staff != staff:
+            return self._reject(env, 'binding_mismatch')
         saved = self.terminal_configs.beacons()['mapping']
         self.locator.beacons = saved if saved is not None else self.cfg.beacons
         interval = p.report_interval_s or 10
@@ -1202,6 +1208,8 @@ class HostService:
         staff = self._staff_or_reject(env)
         if staff:
             v = P.VitalsPayload(**env.payload)
+            if 'staff' in v.model_fields_set and v.staff != staff:
+                return self._reject(env, 'binding_mismatch')
             self.tele.add_vitals(staff, env.device_id, self._now().isoformat(), v.model_dump(mode='json'))
 
     # ---- 测试报表 ------------------------------------------------------

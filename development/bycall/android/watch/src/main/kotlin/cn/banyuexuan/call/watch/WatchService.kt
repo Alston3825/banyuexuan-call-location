@@ -67,7 +67,7 @@ class WatchService : Service() {
         private const val REMIND_MS = 15000L
         private const val MAX_REMINDS = 8
         /** 本版本支持的能力(随心跳报给主机;老版本不带,主机就不等回执) */
-        val CAPS = listOf("receipt", "help", "chat", "bind")
+        val CAPS = listOf("receipt", "help", "chat", "bind", "ble_diagnostics", "heart_rate_interval")
         // 震动方式:客户呼叫 / 紧急 / 同事求助 / 同事消息 各不相同,不看屏幕也能分辨
         private val VIB_CALL = longArrayOf(0, 400, 200, 400)
         private val VIB_EMERGENCY = LongArray(12) { if (it == 0) 0L else if (it % 2 == 1) 600L else 250L }
@@ -79,6 +79,8 @@ class WatchService : Service() {
     private lateinit var cfg: DeviceConfig
     private lateinit var remote: cn.banyuexuan.call.common.RemoteConfig
     private var lastHeartbeat = 0L
+    private var lastHeartSample = 0L
+    private val samplingHeart = java.util.concurrent.atomic.AtomicBoolean(false)
     private var bus: MqttBus? = null
     private var timer: Timer? = null
     private val window = Beacons.Window()
@@ -291,6 +293,7 @@ class WatchService : Service() {
             val before = WatchState.staffId
             val wasSpare = WatchState.wearingSpare
             if (staff != before) {
+                window.drain()
                 WatchState.clearPersonal()                        // 换人/换出:旧会话的呼叫、消息全部作废
                 main.removeCallbacks(remind)
             }
@@ -312,7 +315,7 @@ class WatchService : Service() {
 
     private fun effectiveSettings(): JSONObject {
         val s = JSONObject().put("scan_on_s", 2).put("scan_period_s", 10).put("help_hold_ms", 1000)
-            .put("voice_max_s", 30).put("wifi_lock", true).put("cpu_lock", true)
+            .put("heart_rate_interval_s", 60).put("voice_max_s", 30).put("wifi_lock", true).put("cpu_lock", true)
             .put("quick_replies", JSONArray(listOf("收到", "马上到", "需要帮忙")))
         val policy = try { JSONObject(cfg["_watch_host_settings"].ifBlank { "{}" }) } catch (_: Exception) { JSONObject() }
         for (k in policy.keys()) s.put(k, policy.get(k))
@@ -326,6 +329,7 @@ class WatchService : Service() {
         val scanChanged = on != WatchState.scanOnS || per != WatchState.scanPeriodS
         WatchState.scanOnS = on; WatchState.scanPeriodS = per
         WatchState.helpHoldMs = s.optLong("help_hold_ms", WatchState.helpHoldMs)
+        WatchState.heartRateIntervalS = s.optInt("heart_rate_interval_s", 60).coerceIn(30, 300)
         WatchState.voiceMaxS = s.optInt("voice_max_s", WatchState.voiceMaxS)
         s.optJSONArray("quick_replies")?.let { a -> if (a.length() > 0) WatchState.quickReplies = (0 until a.length()).map { a.optString(it) } }
         val wl = s.optBoolean("wifi_lock", WatchState.wifiLock)
@@ -550,7 +554,17 @@ class WatchService : Service() {
                 val every = (cfg["heartbeat_s"].toLongOrNull() ?: 30L).coerceIn(10L, 30L) * 1000
                 if (now - lastHeartbeat >= every) { lastHeartbeat = now; heartbeat() }
             } catch (_: Throwable) { } } }, 5000, 1000)
-            schedule(object : TimerTask() { override fun run() { try { reportHeartRate() } catch (_: Throwable) { } } }, 60000, 300000)
+            schedule(object : TimerTask() { override fun run() {
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now - lastHeartSample >= WatchState.heartRateIntervalS * 1000L && samplingHeart.compareAndSet(false, true)) {
+                    lastHeartSample = now
+                    Thread {
+                        try { if (instance === this@WatchService) reportHeartRate() }
+                        catch (_: Exception) { }
+                        finally { samplingHeart.set(false) }
+                    }.start()
+                }
+            } }, 5000, 1000)
         }
     }
 
@@ -607,7 +621,7 @@ class WatchService : Service() {
             else rs.maxByOrNull { it.rssi }?.id ?: "未检测到信标"
         val arr = JSONArray().apply { rs.forEach { put(JSONObject().put("beacon_id", it.id).put("rssi", it.rssi)
             .put("sample_count", it.sampleCount).put("age_ms", it.ageMs)) } }
-        val payload = JSONObject().put("readings", arr).put("sampled_at", java.time.Instant.now().toString())
+        val payload = JSONObject().put("readings", arr).put("staff", WatchState.staffId ?: JSONObject.NULL).put("sampled_at", java.time.Instant.now().toString())
             .put("report_interval_s", interval).put("scan_status", status)
             .put("observation_source", if (!fake.isNullOrEmpty()) "simulated" else "ble")
         scanErrorCode?.let { payload.put("scan_error_code", it.coerceIn(0, 100)) }
@@ -616,19 +630,25 @@ class WatchService : Service() {
         WatchState.update { }
     }
 
-    /** One heart-rate sample per 5 min (sensor is on only for up to 30 s). Skipped if no sensor/permission. */
+    /** One real heart-rate sample per configured interval (default 60s); never blocks MQTT heartbeat. */
     private fun reportHeartRate() {
+        val staffAtStart = WatchState.staffId ?: return
+        val deviceAtStart = cfg.deviceId
         if (!has(Manifest.permission.BODY_SENSORS)) return
         val sm = getSystemService(SensorManager::class.java)
         val sensor = sm.getDefaultSensor(Sensor.TYPE_HEART_RATE) ?: return
-        val got = CountDownLatch(1); var bpm = 0
+        val got = CountDownLatch(1); var bpm = 0; var measuredAt = ""
         val l = object : SensorEventListener {
-            override fun onSensorChanged(e: SensorEvent) { if (e.values[0] > 0) { bpm = e.values[0].toInt(); got.countDown() } }
+            override fun onSensorChanged(e: SensorEvent) {
+                val age = android.os.SystemClock.elapsedRealtimeNanos() - e.timestamp
+                if (age in 0L..30_000_000_000L && e.values[0] > 0) { bpm = e.values[0].toInt(); measuredAt = java.time.Instant.ofEpochMilli(System.currentTimeMillis() - age / 1_000_000).toString(); got.countDown() }
+            }
             override fun onAccuracyChanged(s: Sensor?, a: Int) {}
         }
         sm.registerListener(l, sensor, SensorManager.SENSOR_DELAY_NORMAL)
         try { got.await(30, TimeUnit.SECONDS) } finally { sm.unregisterListener(l) }
+        if (instance !== this || WatchState.staffId != staffAtStart || cfg.deviceId != deviceAtStart) return
         if (bpm in 20..250) bus?.publish(Proto.tVitals(cfg.store, cfg.deviceId), Proto.envelope(cfg.store, cfg.deviceId,
-            Proto.VITALS_REPORT, JSONObject().put("heart_rate", bpm)))
+            Proto.VITALS_REPORT, JSONObject().put("heart_rate", bpm).put("measured_at", measuredAt).put("staff", staffAtStart)))
     }
 }

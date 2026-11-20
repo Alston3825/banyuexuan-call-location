@@ -8,11 +8,11 @@ import java.net.URI
 class RemoteConfig(private val cfg: ConfigStore, private val kind: String,
                    private val changed: (Boolean) -> Unit, private val heartbeat: () -> Unit, private val now: () -> Long = { System.currentTimeMillis() }) {
     private val network = setOf("mqtt_host", "mqtt_port", "api_base")
-    private val allowed = network + if (kind == "watch") setOf("heartbeat_s", "report_seconds", "beacon_uuid",
+    private val allowed = network + if (kind == "watch") setOf("heartbeat_s", "heart_rate_interval_s", "report_seconds", "beacon_uuid",
         "scan_on_s", "scan_period_s", "wifi_lock", "cpu_lock", "help_hold_ms", "voice_max_s", "quick_replies")
         else setOf("room_label", "heartbeat_s", "voice_enabled")
     private val ranges = mapOf("mqtt_port" to (1..65535), "heartbeat_s" to (10..30), "report_seconds" to (7..60),
-        "scan_on_s" to (1..60), "scan_period_s" to (7..60), "help_hold_ms" to (500..5000), "voice_max_s" to (5..30))
+        "heart_rate_interval_s" to (30..300), "scan_on_s" to (1..60), "scan_period_s" to (7..60), "help_hold_ms" to (500..5000), "voice_max_s" to (5..30))
     @Volatile private var verifying = false
     @Volatile private var session = ""
     @Volatile private var connected = false
