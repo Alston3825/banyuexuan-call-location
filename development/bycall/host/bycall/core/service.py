@@ -22,6 +22,7 @@ from .guest_buttons import GuestButtons
 from .routing import CUSTOM, ButtonRouting
 from .locator import Locator
 from .location_state import LocationReports
+from .screen_state import ScreenLocationState
 from .telemetry import Telemetry
 from .terminal_config import TerminalConfigs
 from .watches import STATUS_TEXT, WatchError, WatchRegistry
@@ -62,6 +63,7 @@ class HostService:
         self.roster.roles = {s: cfg.role_of(s) for s in cfg.staff}
         self.locator = Locator(cfg.beacons)
         self.location_reports = LocationReports(db_path, cfg.store_id, uuid.uuid4().hex)
+        self.screen_locations = ScreenLocationState(self.location_reports.epoch)
         self.rejected_count = 0
         self.caps = {}                  # watch -> set(能力),来自心跳;老 APK 没有 → 不等回执
         self.unreachable = {}           # staff -> 起始时间:连续收不到派单(无回执),暂按离线处理
@@ -195,8 +197,17 @@ class HostService:
                             beacon=None, room=None, area=None, floor=None, rssi=None, at=None, last_known=None)
             if view['location_status'] == 'fresh' and view['floor'] is None:
                 view['floor'] = self._room_floor(view['room'])
+            view.update(device_last_seen=d.get('last_seen'), offline_since=d.get('offline_since'))
             views.append(view)
         return views
+
+    def location_snapshot(self):
+        # Serialise projection reads so concurrent screen requests cannot publish reversed sequences.
+        with self.screen_locations.lock:
+            views = self.location_views()
+            public = dict(schema='bycall.location.v1', store_id=self.cfg.store_id,
+                          **self.screen_locations.build(views, self._now()))
+            return dict(views=views, public=public)
 
     def _location(self, staff):
         return next((v for v in self.location_views()
@@ -1015,18 +1026,23 @@ class HostService:
                 out[kind] = sample['heart_rate'] if kind == 'heart_rate' else dict(systolic=sample['systolic'], diastolic=sample['diastolic'])
         return out
 
-    def watch_board(self):
+    def watch_board(self, location_snapshot=None):
         """Merged station cards: registered equipment, current wearer, fresh location and actual vitals."""
-        locations = {v['watch']: v for v in self.location_views()}
+        location_snapshot = location_snapshot or self.location_snapshot()
+        locations = {v['watch']: v for v in location_snapshot['views']}
         out = []
         for r in self.watches.all():
             b = self._watch_brief(r['sn'])
             loc = locations.get(r['sn'], {})
             b['online'] = bool(loc.get('online'))
+            b['last_seen'] = loc.get('device_last_seen')
+            b['offline_since'] = loc.get('offline_since')
             b['unreachable'] = bool(r.get('bound_staff') and r['bound_staff'] in self.unreachable)
             b.update({key: loc.get(key) for key in ('location_status', 'location_reason', 'scan_status')})
             b.update(location_area=loc.get('area'), location_room=loc.get('room'), location_floor=loc.get('floor'),
-                     located_at=loc.get('at'), location_ttl_seconds=loc.get('stale_after_seconds', 30))
+                     located_at=loc.get('at'), location_valid_until=loc.get('valid_until'),
+                     location_zone_id=loc.get('beacon') if loc.get('location_status') == 'fresh' else None,
+                     location_ttl_seconds=loc.get('stale_after_seconds', 30))
             b.update(self.watch_vitals(r, b['online']))
             b['active'] = [dict(call_id=i, room=room, state=state) for i, room, state in self._active_calls(r['bound_staff'])] if r.get('bound_staff') else []
             out.append(b)

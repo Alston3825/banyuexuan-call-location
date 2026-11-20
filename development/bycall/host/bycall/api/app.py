@@ -238,7 +238,8 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
                 for c in svc.core.list_calls(store=cfg.store_id, state=st, limit=recent)]
         done.sort(key=lambda c: c['ended_at'] or '', reverse=True)
         dev = {d['device']: d for d in svc.tele.devices()}
-        board = svc.watch_board()
+        location_snapshot = svc.location_snapshot()
+        board = svc.watch_board(location_snapshot)
         by_watch = {v['sn']: v for v in board}
         nurses = []
         for sid, info in cfg.staff.items():
@@ -258,7 +259,7 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
                       last_seen=dev.get(v.get('tablet'), {}).get('last_seen'))
                  for r, v in cfg.rooms.items()]
         return dict(store_id=cfg.store_id, now=svc._now().isoformat(), active=active, recent=done[:recent],
-                    nurses=nurses, rooms=rooms, watches=board,
+                    nurses=nurses, rooms=rooms, watches=board, location_state=location_snapshot['public'],
                     latency_ms=svc.latency[-20:],
                     host=host_status.snapshot() if host_status else None, version=VERSION)
 
@@ -486,17 +487,8 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
 
     @app.get('/integration/twin/locations', dependencies=[Depends(twin_auth)])
     def twin_locations():
-        # Dedicated read-only projection: no names, vitals, voice, call text or admin credentials.
-        items = []
-        for v in svc.location_views():
-            if v['staff'] is None:
-                continue
-            item = {k: v[k] for k in ('watch', 'staff', 'online', 'location_status', 'location_reason',
-                'room', 'area', 'floor', 'precision', 'coordinates', 'received_at', 'observed_at',
-                'age_seconds', 'stale_after_seconds')}
-            item['zone_id'] = v['beacon'] if v['location_status'] == 'fresh' else None
-            items.append(item)
-        return dict(schema='bycall.location.v1', store_id=store, server_time=svc._now().isoformat(), items=items)
+        # Exactly the same location envelope as station/snapshot.location_state; only auth differs.
+        return svc.location_snapshot()['public']
 
     @app.get('/nurses/{staff}/vitals', dependencies=[Depends(auth)])
     def vitals(staff: str, limit: int = 100):

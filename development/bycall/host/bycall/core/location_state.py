@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 class LocationReports:
@@ -44,7 +44,7 @@ class LocationReports:
         base = dict(watch=watch, staff=staff, online=online, location_status='unknown',
                     location_reason='not_observed', precision='area', coordinates=None,
                     beacon=None, room=None, area=None, floor=None, rssi=None, at=None,
-                    observed_at=None, received_at=None, age_seconds=None, stale_after_seconds=30,
+                    observed_at=None, received_at=None, age_seconds=None, stale_after_seconds=30, valid_until=None,
                     scan_status=None, scan_error_code=None, reported_beacon_count=0, reported_sample_count=0, last_known=None)
         if not row:
             return base
@@ -75,5 +75,6 @@ class LocationReports:
             return dict(base, location_reason='mapping_changed')
         base.update({k: fix.get(k) for k in ('beacon', 'room', 'area', 'floor', 'rssi')})
         base.update(location_status='fresh', location_reason=None, at=row['received_at'],
-                    observed_at=diag.get('sampled_at'))
+                    observed_at=diag.get('sampled_at'),
+                    valid_until=(datetime.fromisoformat(row['received_at']) + timedelta(seconds=ttl - (diag.get('fix_age_ms') or 0) / 1000)).isoformat())
         return base

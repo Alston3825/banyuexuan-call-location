@@ -386,6 +386,7 @@ function fmtAgo(s) {
   return Math.floor(s / 86400) + '天';
 }
 function updateWatchState(x) {
+  if(lastOk && Date.now()-lastOk>8000){x.className='wst slow';x.textContent='连接中断 · 状态未知';return;}
   const last = x.dataset.last ? Date.parse(x.dataset.last) : 0, since = x.dataset.offlineSince ? Date.parse(x.dataset.offlineSince) : last;
   const ago = (x.dataset.online === '1' ? last : since) ? (now() - (x.dataset.online === '1' ? last : since)) / 1000 : null;
   if (x.dataset.online === '1') {
@@ -398,16 +399,17 @@ function updateWatchState(x) {
   }
 }
 function updateWatchMeasurements(card) {
-  const current = now();
+  const current = now(), disconnected=Boolean(lastOk && Date.now()-lastOk>8000);
   for (const kind of ['heart','pressure']) {
     const span=card.querySelector('[data-metric="'+kind+'"]'), at=Date.parse(span.dataset.at||'');
-    const age=(current-at)/1000, fresh=span.dataset.state==='fresh'&&Number.isFinite(age)&&age>=-30&&age<=Number(span.dataset.ttl||600);
+    const age=(current-at)/1000, fresh=!disconnected&&span.dataset.state==='fresh'&&Number.isFinite(age)&&age>=-30&&age<=Number(span.dataset.ttl||600);
     span.textContent=fresh?span.dataset.value:(span.dataset.state==='no_data'?'未提供':'—');
     span.title=fresh?(kind==='heart'?'心率（次/分）真实采样 ':'血压（mmHg）真实采样 ')+new Date(at).toLocaleTimeString('zh-CN'):(span.dataset.state==='no_data'?'没有收到真实测量数据':'采样过期或设备离线');
   }
   const location=card.querySelector('.watch-location .value');
-  const expired=location.dataset.state==='fresh'&&current-Date.parse(location.dataset.at||'')>Number(location.dataset.ttl)*1000;
-  location.textContent=expired?'位置已过期':location.dataset.label;
+  const deadline=location.dataset.validUntil?Date.parse(location.dataset.validUntil):Date.parse(location.dataset.at||'')+Number(location.dataset.ttl)*1000;
+  const expired=location.dataset.state==='fresh'&&current>=deadline;
+  location.textContent=disconnected?'数据连接中断':expired?'位置已过期':location.dataset.label;
 }
 function renderWatches(list) {
   const box=$('watches'), scroll=box.scrollTop, previous=new Map([...box.querySelectorAll('[data-sn]')].map(card=>[card.dataset.sn,card])), fragment=document.createDocumentFragment();
@@ -428,7 +430,7 @@ function renderWatches(list) {
     metrics.append(metric('heart','心率',w.heart_rate==null?'':String(w.heart_rate),w.heart_rate_state,w.heart_rate_at),metric('pressure','血压',w.blood_pressure?w.blood_pressure.systolic+'/'+w.blood_pressure.diastolic:'',w.blood_pressure_state,w.blood_pressure_at));
     const loc=el('div','watch-location'),value=el('span','value');
     const label=w.location_status==='fresh'?(w.location_area||w.location_room||'已定位'):w.location_status==='stale'?'位置已过期':w.location_reason==='scan_error'?'扫描异常':w.location_reason==='unbound'?'未佩戴':w.location_reason==='simulated'?'测试观测':'位置未知';
-    value.dataset.state=w.location_status||'unknown';value.dataset.label=label;value.dataset.at=w.located_at||'';value.dataset.ttl=w.location_ttl_seconds||30;
+    value.dataset.state=w.location_status||'unknown';value.dataset.label=label;value.dataset.at=w.located_at||'';value.dataset.ttl=w.location_ttl_seconds||30;value.dataset.validUntil=w.location_valid_until||'';
     value.title=label+(w.located_at?' · '+new Date(w.located_at).toLocaleTimeString('zh-CN'):'');loc.append(el('span','label','位置'),value);
     card.append(head,status,metrics,loc);fragment.append(card);updateWatchMeasurements(card);
   });
