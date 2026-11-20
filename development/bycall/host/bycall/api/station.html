@@ -446,7 +446,7 @@ function render(s) {
     else if (n.active.length) h.appendChild(el('span', 'tag', '处理 ' + n.active.map(a => a.room).join('、')));
     else h.appendChild(el('span', 'tag', '空闲'));
     l.appendChild(h);
-    const loc = n.online ? (n.area || '位置未知') : ('最后在线 ' + (hhmm(n.last_seen) || '—'));
+    const loc = n.online ? (n.location_status === 'stale' ? '定位已过期' : (n.area || '位置未知')) : ('最后在线 ' + (hhmm(n.last_seen) || '—'));
     l.appendChild(el('div', 't', loc + (n.heart_rate ? ' · ♥ ' + n.heart_rate : '')));
     const bat = el('div', 't', n.battery != null ? '🔋' + n.battery + '%' : '');
     if (n.battery != null && n.battery < 20) bat.style.color = 'var(--bad)';

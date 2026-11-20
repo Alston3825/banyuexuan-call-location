@@ -68,12 +68,19 @@ class Envelope(BaseModel):
 
 
 class Reading(BaseModel):
-    beacon_id: str
+    beacon_id: str = Field(min_length=1, max_length=80)
     rssi: int = Field(ge=-127, le=0)
+    sample_count: Optional[int] = Field(default=None, ge=1, le=100000)
+    age_ms: Optional[int] = Field(default=None, ge=0, le=3600000)
 
 
 class LocationPayload(BaseModel):
-    readings: List[Reading]
+    readings: List[Reading] = Field(max_length=128)
+    sampled_at: Optional[datetime] = None
+    report_interval_s: Optional[int] = Field(default=None, ge=7, le=60)
+    scan_status: Optional[str] = Field(default=None, max_length=40)
+    scan_error_code: Optional[int] = Field(default=None, ge=0, le=100)
+    observation_source: Optional[str] = Field(default=None, pattern='^(ble|simulated)$')
 
 
 class VitalsPayload(BaseModel):

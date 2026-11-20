@@ -10,6 +10,8 @@ import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.BluetoothLeScanner
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -82,6 +84,9 @@ class WatchService : Service() {
     private val window = Beacons.Window()
     private val main = Handler(Looper.getMainLooper())
     private var scanCb: ScanCallback? = null
+    private var scanScanner: BluetoothLeScanner? = null
+    @Volatile private var scanStatus = "not_started"
+    @Volatile private var scanErrorCode: Int? = null
     private var player: MediaPlayer? = null
     @Volatile private var chatPlaying = false
     private var reminds = 0
@@ -483,24 +488,58 @@ class WatchService : Service() {
     private fun startScanCycle() { stopScanCycle(); main.post(scanOn); main.postDelayed(locationReport, 3000) }
     private fun stopScanCycle() { main.removeCallbacks(locationReport); main.removeCallbacks(scanOn); main.removeCallbacks(scanOff); stopScanNow() }
 
-    @android.annotation.SuppressLint("MissingPermission")   // 已按系统版本手动检查权限,且整体包在 try 里
+    private fun scanProblem(status: String, code: Int? = null) {
+        scanStatus = status; scanErrorCode = code
+        window.drain()
+    }
+
+    @android.annotation.SuppressLint("MissingPermission")
     private fun startScanNow() {
         if (scanCb != null) return
-        if (android.os.Build.VERSION.SDK_INT >= 31 && !has(Manifest.permission.BLUETOOTH_SCAN)) return
-        if (android.os.Build.VERSION.SDK_INT < 31 && !has(Manifest.permission.ACCESS_FINE_LOCATION)) return
-        val scanner = try { getSystemService(BluetoothManager::class.java).adapter?.bluetoothLeScanner } catch (_: Throwable) { null } ?: return
-        val cb = object : ScanCallback() {
-            override fun onScanResult(t: Int, r: ScanResult) { Beacons.parse(r, cfg["beacon_uuid"])?.let { window.add(it) } }
-            override fun onBatchScanResults(l: MutableList<ScanResult>) { l.forEach { onScanResult(0, it) } }
+        if (!has(Manifest.permission.ACCESS_FINE_LOCATION) ||
+            (android.os.Build.VERSION.SDK_INT >= 31 && (!has(Manifest.permission.BLUETOOTH_SCAN) || !has(Manifest.permission.BLUETOOTH_CONNECT)))) {
+            scanProblem("permission_denied"); return
         }
-        try { scanner.startScan(null, ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), cb); scanCb = cb } catch (_: Throwable) {}
+        val prefix = try { Beacons.filterPrefix(cfg["beacon_uuid"]) }
+                     catch (_: IllegalArgumentException) { scanProblem("invalid_uuid"); return }
+        try {
+            val lm = getSystemService(android.location.LocationManager::class.java)
+            @Suppress("DEPRECATION")
+            val enabled = if (android.os.Build.VERSION.SDK_INT >= 28) lm.isLocationEnabled
+                else android.provider.Settings.Secure.getInt(contentResolver, android.provider.Settings.Secure.LOCATION_MODE, 0) != 0
+            if (!enabled) { scanProblem("location_disabled"); return }
+            val adapter = getSystemService(BluetoothManager::class.java).adapter
+            if (adapter == null) { scanProblem("unavailable"); return }
+            if (!adapter.isEnabled) { scanProblem("bluetooth_off"); return }
+            val scanner = adapter.bluetoothLeScanner ?: run { scanProblem("unavailable"); return }
+            val filter = ScanFilter.Builder().setManufacturerData(0x004C, prefix, ByteArray(prefix.size) { 0xFF.toByte() }).build()
+            lateinit var cb: ScanCallback
+            cb = object : ScanCallback() {
+                override fun onScanResult(t: Int, r: ScanResult) {
+                    if (scanCb === cb) Beacons.parse(r, cfg["beacon_uuid"])?.let { window.add(it) }
+                }
+                override fun onBatchScanResults(l: MutableList<ScanResult>) { l.forEach { onScanResult(0, it) } }
+                override fun onScanFailed(errorCode: Int) {
+                    if (scanCb === cb) { scanProblem("scan_failed", errorCode); reportLocation() }
+                }
+            }
+            scanCb = cb; scanScanner = scanner; scanStatus = "ok"; scanErrorCode = null
+            scanner.startScan(listOf(filter), ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), cb)
+        } catch (_: SecurityException) {
+            scanCb = null; scanScanner = null; scanProblem("permission_denied")
+        } catch (_: Exception) {
+            scanCb = null; scanScanner = null; scanProblem("start_failed")
+        }
     }
 
     @android.annotation.SuppressLint("MissingPermission")
     private fun stopScanNow() {
         val cb = scanCb ?: return
-        scanCb = null
-        try { getSystemService(BluetoothManager::class.java).adapter?.bluetoothLeScanner?.stopScan(cb) } catch (_: Throwable) {}
+        val scanner = scanScanner
+        scanCb = null; scanScanner = null
+        try { scanner?.stopScan(cb) }
+        catch (_: SecurityException) { scanProblem("permission_denied") }
+        catch (_: Exception) { scanProblem("stop_failed") }
     }
 
     private fun startTimers() {
@@ -557,13 +596,23 @@ class WatchService : Service() {
     }
 
     private fun reportLocation() {
+        val interval = (cfg["report_seconds"].toLongOrNull() ?: 10L).coerceIn(7L, 60L)
         val fake = fakeReadings
-        val rs = if (!fake.isNullOrEmpty()) fake else window.drain()
-        if (rs.isEmpty()) { WatchState.where = "未检测到信标"; return }
-        WatchState.where = rs.maxByOrNull { it.rssi }!!.id
-        val arr = JSONArray().apply { rs.forEach { put(JSONObject().put("beacon_id", it.id).put("rssi", it.rssi)) } }
-        bus?.publish(Proto.tLocation(cfg.store, cfg.deviceId), Proto.envelope(cfg.store, cfg.deviceId, Proto.LOCATION_REPORT,
-            JSONObject().put("readings", arr)), qos0 = true)
+        val rs = if (!fake.isNullOrEmpty()) fake.take(128) else window.drain(interval * 1000)
+        val status = scanStatus
+        val labels = mapOf("permission_denied" to "蓝牙/定位权限未授予", "bluetooth_off" to "蓝牙未开启",
+            "location_disabled" to "系统定位未开启", "invalid_uuid" to "信标UUID格式错误",
+            "scan_failed" to "蓝牙扫描失败", "start_failed" to "蓝牙扫描启动失败", "unavailable" to "蓝牙扫描不可用")
+        WatchState.where = if (status != "ok") labels[status] ?: "扫描状态:$status"
+            else rs.maxByOrNull { it.rssi }?.id ?: "未检测到信标"
+        val arr = JSONArray().apply { rs.forEach { put(JSONObject().put("beacon_id", it.id).put("rssi", it.rssi)
+            .put("sample_count", it.sampleCount).put("age_ms", it.ageMs)) } }
+        val payload = JSONObject().put("readings", arr).put("sampled_at", java.time.Instant.now().toString())
+            .put("report_interval_s", interval).put("scan_status", status)
+            .put("observation_source", if (!fake.isNullOrEmpty()) "simulated" else "ble")
+        scanErrorCode?.let { payload.put("scan_error_code", it.coerceIn(0, 100)) }
+        bus?.publish(Proto.tLocation(cfg.store, cfg.deviceId), Proto.envelope(cfg.store, cfg.deviceId,
+            Proto.LOCATION_REPORT, payload), qos0 = true)
         WatchState.update { }
     }
 

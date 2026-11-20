@@ -92,10 +92,11 @@ class MainActivity : Activity() {
     }
 
     private fun askPermissions() {
-        val need = listOf(Manifest.permission.POST_NOTIFICATIONS, Manifest.permission.BLUETOOTH_SCAN,
-            Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.BODY_SENSORS,
-            Manifest.permission.RECORD_AUDIO)
-            .filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        val permissions = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.BODY_SENSORS, Manifest.permission.RECORD_AUDIO)
+        if (android.os.Build.VERSION.SDK_INT >= 31) permissions.addAll(listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT))
+        if (android.os.Build.VERSION.SDK_INT >= 33) permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        val need = permissions.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (need.isEmpty()) afterPermissions() else requestPermissions(need.toTypedArray(), 1)
     }
 

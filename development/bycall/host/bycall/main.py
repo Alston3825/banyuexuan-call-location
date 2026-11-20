@@ -94,7 +94,8 @@ def main():
         threading.Timer(1.5, lambda: os._exit(0)).start()
     uvicorn.run(create_app(svc, voice, os.environ.get('BYCALL_API_KEY'), hstat, bm, restart,
                               AppUpdates(os.path.join(data, 'apk')), Transcriber(svc.core.path),
-                              swap_key=os.environ.get('BYCALL_SWAP_KEY')), host='0.0.0.0', port=int(os.environ.get('BYCALL_PORT', '8000')))
+                              swap_key=os.environ.get('BYCALL_SWAP_KEY'),
+                              twin_key=os.environ.get('BYCALL_TWIN_KEY')), host='0.0.0.0', port=int(os.environ.get('BYCALL_PORT', '8000')))
 
 
 if __name__ == '__main__':

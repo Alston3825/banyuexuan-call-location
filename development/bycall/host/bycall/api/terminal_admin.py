@@ -57,9 +57,14 @@ def install(app, svc, auth):
     @app.get('/admin/terminal-config', dependencies=[Depends(auth)])
     def listing():
         devices = []
+        locations = {v['watch']: v for v in svc.location_views()}
         for kind in SCHEMAS:
             for dev, name in known(kind).items():
-                devices.append(dict(configs.get(kind, dev), name=name))
+                item = dict(configs.get(kind, dev), name=name)
+                if kind == 'watch':
+                    v = locations.get(dev, {})
+                    item['ble'] = {k: v.get(k) for k in ('scan_status', 'scan_error_code', 'location_status', 'location_reason', 'received_at')}
+                devices.append(item)
         return dict(schema=SCHEMAS, devices=devices, rooms=list(svc.cfg.rooms), store=svc.cfg.store_id)
 
     @app.put('/admin/terminal-config/{kind}', dependencies=[Depends(auth)])

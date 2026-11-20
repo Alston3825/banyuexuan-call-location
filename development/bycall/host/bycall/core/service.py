@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import hashlib
+import uuid
 import json
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
@@ -20,6 +21,7 @@ from .dispatcher import STATION, Dispatcher, Roster, shift_of
 from .guest_buttons import GuestButtons
 from .routing import CUSTOM, ButtonRouting
 from .locator import Locator
+from .location_state import LocationReports
 from .telemetry import Telemetry
 from .terminal_config import TerminalConfigs
 from .watches import STATUS_TEXT, WatchError, WatchRegistry
@@ -59,6 +61,7 @@ class HostService:
         self.watches.sync_from_config(cfg.staff, cfg.spare_watches, self._now().isoformat())
         self.roster.roles = {s: cfg.role_of(s) for s in cfg.staff}
         self.locator = Locator(cfg.beacons)
+        self.location_reports = LocationReports(db_path, cfg.store_id, uuid.uuid4().hex)
         self.rejected_count = 0
         self.caps = {}                  # watch -> set(能力),来自心跳;老 APK 没有 → 不等回执
         self.unreachable = {}           # staff -> 起始时间:连续收不到派单(无回执),暂按离线处理
@@ -172,9 +175,32 @@ class HostService:
                              expected_version=c['version'], action=action, **kw)
 
     # ---- 位置 / 楼层 -------------------------------------------------
+    def location_views(self):
+        reports = self.location_reports.rows()
+        devices = {d['device']: d for d in self.tele.devices()}
+        mapping = self.terminal_configs.beacons()['mapping']
+        if mapping is None:
+            mapping = self.cfg.beacons
+        views = []
+        now = self._now()
+        for reg in self.watches.all():
+            watch, staff = reg['sn'], reg.get('bound_staff')
+            d = devices.get(watch, {})
+            online = bool(d.get('online')) and d.get('last_seen', '') >= (now - OFFLINE_AFTER).isoformat()
+            view = self.location_reports.describe(reports.get(watch), watch, staff, reg.get('last_bind_time'),
+                                                  now, online, mapping)
+            # Last-known fixes are historical evidence; never expose another wearer's data.
+            if staff is None:
+                view.update(location_status='unknown', location_reason='unbound',
+                            beacon=None, room=None, area=None, floor=None, rssi=None, at=None, last_known=None)
+            if view['location_status'] == 'fresh' and view['floor'] is None:
+                view['floor'] = self._room_floor(view['room'])
+            views.append(view)
+        return views
+
     def _location(self, staff):
-        r = self.tele._run('SELECT * FROM locations WHERE staff=? ORDER BY id DESC LIMIT 1', (staff,))
-        return r[0] if r else None
+        return next((v for v in self.location_views()
+                     if v['staff'] == staff and v['location_status'] == 'fresh'), None)
 
     def _room_floor(self, room):
         f = self.cfg.rooms.get(room or '', {}).get('floor')
@@ -355,6 +381,8 @@ class HostService:
             self.rejected_count += 1
             return
         if env.type == P.HEARTBEAT and topic != P.t_heartbeat(self.cfg.store_id, env.device_id):
+            return self._reject(env, 'topic_device_mismatch')
+        if env.type == P.LOCATION_REPORT and topic != P.t_location(self.cfg.store_id, env.device_id):
             return self._reject(env, 'topic_device_mismatch')
         parts = topic.split('/')
         # 带设备名的主题:信封里的设备必须与主题一致(配合 MQTT 按设备 ACL,防止冒用别的设备身份)
@@ -1098,15 +1126,41 @@ class HostService:
             self._dispatch_new()
 
     def _h_location(self, env):
+        if not self.watches.get(env.device_id):
+            return self._reject(env, 'unknown_device')
         staff = self.staff_of_watch(env.device_id)
-        if not staff:
-            return self._reject(env, 'not_bound' if self.watches.get(env.device_id) else 'unknown_device')
         p = P.LocationPayload(**env.payload)
         saved = self.terminal_configs.beacons()['mapping']
-        if saved is not None:
-            self.locator.beacons = saved
-        fix = self.locator.update(env.device_id, [r.model_dump() for r in p.readings])
-        self.tele.add_location(env.device_id, staff, fix, self._now().isoformat())
+        self.locator.beacons = saved if saved is not None else self.cfg.beacons
+        interval = p.report_interval_s or 10
+        readings = [r.model_dump() for r in p.readings if r.age_ms is None or r.age_ms <= interval * 3000]
+        scan_ok = p.scan_status in (None, 'ok')
+        simulated = p.observation_source == 'simulated'
+        if not staff or not scan_ok or simulated:
+            self.locator.clear(env.device_id)
+            fix = None
+        else:
+            fix = self.locator.update(env.device_id, readings)
+        if not staff:
+            reason = 'unbound'
+        elif simulated:
+            reason = 'simulated'
+        elif not scan_ok:
+            reason = 'scan_error'
+        elif not p.readings:
+            reason = 'empty_window'
+        elif not readings:
+            reason = 'samples_expired'
+        elif not any(r['beacon_id'] in self.locator.beacons for r in readings):
+            reason = 'unmapped'
+        else:
+            reason = 'below_threshold' if not fix else None
+        diag = p.model_dump(mode='json')
+        diag['reason'], diag['report_interval_s'] = reason, interval
+        self.location_reports.record(env.device_id, staff, self.watches.get(env.device_id).get('last_bind_time'),
+                                     fix, diag, self._now().isoformat())
+        if staff:
+            self.tele.add_location(env.device_id, staff, fix, self._now().isoformat())
         if fix and fix['room']:
             for call_id, room, state in self._active_calls(staff):
                 if state == 'claimed' and room == fix['room']:

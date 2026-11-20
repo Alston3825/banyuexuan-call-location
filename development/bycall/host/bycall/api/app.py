@@ -20,7 +20,7 @@ from ..core.voice import VoiceStore
 
 def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_status=None,
                backup_mgr=None, restart=None, app_updates=None, transcriber=None,
-               swap_key: Optional[str] = None) -> FastAPI:
+               swap_key: Optional[str] = None, twin_key: Optional[str] = None) -> FastAPI:
     app = FastAPI(title='伴月轩智能呼叫定位系统 主机 API', version='0.1')
     store = svc.cfg.store_id
 
@@ -238,7 +238,7 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
                 for c in svc.core.list_calls(store=cfg.store_id, state=st, limit=recent)]
         done.sort(key=lambda c: c['ended_at'] or '', reverse=True)
         dev = {d['device']: d for d in svc.tele.devices()}
-        loc = {l['watch']: l for l in svc.tele.latest_locations()}
+        loc = {l['watch']: l for l in svc.location_views()}
         nurses = []
         for sid, info in cfg.staff.items():
             w = svc.watch_of(sid)                     # 当前戴的表(换表后是备用表)
@@ -248,6 +248,7 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
                                online=bool(d.get('online')), battery=d.get('battery'),
                                last_seen=d.get('last_seen'), status=svc.roster.state(sid),
                                area=l.get('area'), location_room=l.get('room'), located_at=l.get('at'),
+                               location_status=l.get('location_status', 'unknown'), location_reason=l.get('location_reason'),
                                heart_rate=hr[0]['heart_rate'] if hr else None,
                                active=[dict(call_id=i, room=r, state=s) for i, r, s in svc._active_calls(sid)]))
         rooms = [dict(room=r, floor=v.get('floor'), room_no=v.get('room_no'),
@@ -475,7 +476,25 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
 
     @app.get('/nurses/locations', dependencies=[Depends(auth)])
     def locations():
-        return svc.tele.latest_locations()
+        return svc.location_views()
+
+    def twin_auth(x_api_key: Optional[str] = Header(default=None)):
+        if not twin_key or twin_key in (api_key, swap_key):
+            raise HTTPException(503, '数字孪生只读接口尚未启用')
+        if not x_api_key or not hmac.compare_digest(x_api_key, twin_key):
+            raise HTTPException(401, 'invalid read-only key')
+
+    @app.get('/integration/twin/locations', dependencies=[Depends(twin_auth)])
+    def twin_locations():
+        # Dedicated read-only projection: no names, vitals, voice, call text or admin credentials.
+        items = []
+        for v in svc.location_views():
+            if v['staff'] is None:
+                continue
+            items.append({k: v[k] for k in ('watch', 'staff', 'online', 'location_status', 'location_reason',
+                'room', 'area', 'floor', 'precision', 'coordinates', 'received_at', 'observed_at',
+                'age_seconds', 'stale_after_seconds')})
+        return dict(schema='bycall.location.v1', store_id=store, server_time=svc._now().isoformat(), items=items)
 
     @app.get('/nurses/{staff}/vitals', dependencies=[Depends(auth)])
     def vitals(staff: str, limit: int = 100):

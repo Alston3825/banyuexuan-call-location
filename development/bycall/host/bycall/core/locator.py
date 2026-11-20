@@ -13,14 +13,18 @@ class Locator:
         self.current: Dict[str, Optional[str]] = {}
 
     def update(self, watch: str, readings: List[dict]) -> Optional[dict]:
-        known = {r['beacon_id']: r['rssi'] for r in readings if r['beacon_id'] in self.beacons}
+        known = {r['beacon_id']: r['rssi'] for r in readings
+                 if r['beacon_id'] in self.beacons and r['rssi'] >= self.min_rssi}
+        if not known:
+            self.clear(watch)
+            return None
         self._hist[watch].append(known)
         sums, counts = defaultdict(float), defaultdict(int)
         for rep in self._hist[watch]:
             for b, v in rep.items():
                 sums[b] += v
                 counts[b] += 1
-        avg = {b: sums[b] / counts[b] for b in sums if sums[b] / counts[b] >= self.min_rssi}
+        avg = {b: sums[b] / counts[b] for b in known if sums[b] / counts[b] >= self.min_rssi}
         if not avg:
             self.current[watch] = None
             return None
@@ -30,5 +34,9 @@ class Locator:
             best = cur                    # not clearly stronger: stay put
         self.current[watch] = best
         b = self.beacons[best]
-        return dict(watch=watch, beacon=best, area=b.get('area'), room=b.get('room'),
+        return dict(watch=watch, beacon=best, area=b.get('area'), room=b.get('room'), floor=b.get('floor'),
                     rssi=round(avg[best], 1))
+
+    def clear(self, watch):
+        self._hist.pop(watch, None)
+        self.current.pop(watch, None)

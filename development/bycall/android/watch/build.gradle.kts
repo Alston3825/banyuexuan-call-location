@@ -14,4 +14,4 @@ android {
     }
     packaging { resources { excludes += setOf("META-INF/INDEX.LIST", "META-INF/io.netty.versions.properties", "META-INF/DEPENDENCIES") } }
 }
-dependencies { implementation(project(":common")) }
+dependencies { implementation(project(":common")); testImplementation("junit:junit:4.13.2") }
