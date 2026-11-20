@@ -35,7 +35,7 @@ def install(app, svc, auth):
 
     def known(kind):
         if kind == 'watch':
-            return {w['sn']: w.get('bound_staff') or w['sn'] for w in svc.watches.all()}
+            return {w['sn']: svc.cfg.name(w['bound_staff']) if w.get('bound_staff') else w['sn'] for w in svc.watches.all()}
         if kind == 'tablet':
             return {v['tablet']: str(r) + '房平板' for r, v in svc.cfg.rooms.items() if v.get('tablet')}
         if kind == 'station':

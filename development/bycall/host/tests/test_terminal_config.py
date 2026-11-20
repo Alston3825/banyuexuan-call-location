@@ -75,10 +75,16 @@ class TestTerminalConfig(Base):
                   dict(terminal_config_v=1, terminal_revision=rev, terminal_result='applied'))
         self.assertEqual(self.svc.terminal_configs.get('watch', 'w-01')['status'], 'pending')
 
+    def test_ack_topic_cannot_be_used_to_forge_another_heartbeat(self):
+        rev = self.save().json()['revision']
+        self.send(P.t_ack(S, 'some-call'), 'w-01', P.HEARTBEAT,
+                  dict(terminal_config_v=1, terminal_revision=rev, terminal_result='applied'))
+        self.assertEqual(self.svc.terminal_configs.get('watch', 'w-01')['status'], 'pending')
+
     def test_validation_and_atomic_batch(self):
         for patch in [dict(scan_on_s=20), dict(scan_period_s=3), dict(heartbeat_s=120),
                       dict(beacon_uuid='bad'), dict(wifi_lock='true'), dict(mqtt_port=True),
-                      dict(api_base='http://user:secret@server:8100'), dict(api_base='http://server:99999'),
+                      dict(api_base='http://user:secret@server:8100'), dict(api_base='http://server:99999'), dict(api_base='http://['), dict(api_base='http://bad host'),
                       dict(mqtt_host='http://server'), dict(quick_replies=[]), dict(room_label='x')]:
             self.assertEqual(self.save(patch).status_code, 400, patch)
         self.assertEqual(self.save(targets=['unknown']).status_code, 404)

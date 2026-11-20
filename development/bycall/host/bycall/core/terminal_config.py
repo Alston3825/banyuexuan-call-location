@@ -90,12 +90,12 @@ def validate(kind, patch, current=None):
             if t == 'host' and (not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9.-]{0,252}', value)):
                 raise ConfigError('请填写主机IP或域名，不含协议或端口')
             if t == 'url':
-                u = urlsplit(value)
                 try:
+                    u = urlsplit(value)
                     port = u.port
                 except ValueError:
                     raise ConfigError('接口端口无效')
-                if u.scheme not in ('http', 'https') or not u.hostname or u.username or u.password or u.query or u.fragment or u.path not in ('', '/'):
+                if u.scheme not in ('http', 'https') or not u.hostname or u.username or u.password or u.query or u.fragment or u.path not in ('', '/') or any(c.isspace() for c in u.hostname):
                     raise ConfigError('接口地址需为 http(s)://主机:端口，不含密码或路径')
                 if port is not None and not 1 <= port <= 65535:
                     raise ConfigError('接口端口无效')

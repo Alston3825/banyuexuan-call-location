@@ -57,3 +57,9 @@ Python/FastAPI + SQLite + MQTT；Android 平板和护士手表；核心实现位
 ## 模型与 Mac 远程升级（2026-11-16）
 
 先读 docs/15-语音模型接入与Mac远程升级.md。已用用户授权公钥连通 N100，实际将 host/whisper-small 复制到 host/models/whisper-small，源模型及旧空目录保留。新 Mac/Windows 入口支持源码暂存、隔离预检、首次测试启动及升级；147 项回归通过。真实 N100 尚未生成 .env 或启动服务，用户需交互 sudo 执行。没有保存密码或自动恢复数据库；不能把已传输源码当作已发布。
+
+## 2026-11-20 最新版开发入口：统一终端设置
+
+用户提供 `/Users/alston/Desktop/bycall` 作为最新版。为保留原件及本目录既有开发，已在 `development/bycall` 建立仅含源码/示例配置/文档的开发副本，本轮统一设置功能仅在该副本实现；原根目录 host/android 未覆盖。先读该目录 BASELINE.md 与 docs/16-统一终端设置与推送.md。两套 watchops/team 与 WatchRegistry/chat 协议不同，不可混合单文件发布。
+
+新增 /admin/terminals 后台，手表/平板 MQTT 配置与版本回执、浏览器大屏长轮询配置、重连补发、连接90秒验证回退、手表页信标房间表。信标实物仍用BeaconSET配置。首次需成套升级主机与两端APK；本轮未部署N100。验证结果及源码/测试包位置以当前开发任务最新条目为准。

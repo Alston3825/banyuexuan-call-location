@@ -354,6 +354,8 @@ class HostService:
         if env.store_id != self.cfg.store_id:
             self.rejected_count += 1
             return
+        if env.type == P.HEARTBEAT and topic != P.t_heartbeat(self.cfg.store_id, env.device_id):
+            return self._reject(env, 'topic_device_mismatch')
         parts = topic.split('/')
         # 带设备名的主题:信封里的设备必须与主题一致(配合 MQTT 按设备 ACL,防止冒用别的设备身份)
         if len(parts) == 3 and parts[1] in ('heartbeat', 'location', 'vitals', 'status', 'up') \

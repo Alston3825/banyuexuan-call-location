@@ -33,3 +33,10 @@ host/mosquitto/auth/
 # 远程升级快照与暂存不进入源码备份
 host/upgrade-backups/
 .cache/bycall-deploy/
+
+# 最新源码开发副本的设备私密配置与运行产物
+development/**/host/models/
+development/**/host/data/
+development/**/host/config/
+development/**/host/mosquitto/auth/
+**/local.properties

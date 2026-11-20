@@ -86,6 +86,29 @@ class RemoteConfigTest {
         } finally { server.stop(0) }
     }
 
+    @Test fun newerEditDuringVerificationKeepsOriginalRollbackAddress() {
+        val cfg = MemoryConfig(); var time = 1000L
+        val r = RemoteConfig(cfg, "watch", {}, {}, {time})
+        r.receive(command(1, JSONObject().put("mqtt_host", "first-attempt")))
+        r.receive(command(2, JSONObject().put("mqtt_host", "second-attempt")))
+        assertEquals("second-attempt", cfg["mqtt_host"])
+        time += 91_000; r.tick()
+        assertEquals("old-host", cfg["mqtt_host"])
+        assertEquals(2L, state(r).getLong("terminal_revision"))
+        assertEquals("failed", state(r).getString("terminal_result"))
+    }
+
+    @Test fun tabletSupportsVoiceSwitchButRejectsWatchOnlyFields() {
+        val cfg = MemoryConfig()
+        val r = RemoteConfig(cfg, "tablet", {}, {})
+        r.receive(command(1, JSONObject().put("voice_enabled", false).put("room_label", "试点房")).put("kind", "tablet"))
+        assertEquals("false", cfg["voice_enabled"])
+        assertEquals("试点房", cfg["room_label"])
+        r.receive(command(2, JSONObject().put("beacon_uuid", "a".repeat(32))).put("kind", "tablet"))
+        assertEquals("failed", state(r).getString("terminal_result"))
+        assertEquals("", cfg["beacon_uuid"])
+    }
+
     @Test fun failedPreferenceWriteNeverReportsApplied() {
         val cfg = MemoryConfig(); cfg.fail = true; var changed = false
         val r = RemoteConfig(cfg, "watch", { changed = true }, {})
