@@ -40,7 +40,12 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
         raise HTTPException(401, 'invalid api key')
 
     from .terminal_admin import install as install_terminal_admin
-    install_terminal_admin(app, svc, auth)
+    def terminal_auth(x_api_key: Optional[str] = Header(default=None)):
+        if not api_key:
+            raise HTTPException(503, '请先为主机配置管理员密钥，再使用远程设置')
+        return auth(x_api_key)
+
+    install_terminal_admin(app, svc, terminal_auth)
 
     def view(c):
         r = json.loads(c['request'])

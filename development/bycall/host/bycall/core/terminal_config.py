@@ -104,8 +104,8 @@ def validate(kind, patch, current=None):
     merged = {k: v['default'] for k, v in SCHEMAS[kind].items()}
     merged.update(current or {})
     merged.update(out)
-    if kind == 'watch' and merged['scan_on_s'] > merged['scan_period_s']:
-        raise ConfigError('扫描时长不能超过扫描周期')
+    if kind == 'watch' and merged['scan_on_s'] >= merged['scan_period_s']:
+        raise ConfigError('扫描时长必须小于扫描周期')
     return out
 
 
@@ -185,15 +185,18 @@ class TerminalConfigs:
             if not isinstance(x, dict):
                 raise ConfigError('信标记录格式无效')
             major, minor, room = x.get('major'), x.get('minor'), x.get('room')
-            if type(major) is not int or type(minor) is not int or not 0 <= major <= 65535 or not 0 <= minor <= 65535 or room not in rooms:
+            if type(major) is not int or type(minor) is not int or not 0 <= major <= 65535 or not 0 <= minor <= 65535 or (room is not None and (not isinstance(room, str) or room not in rooms)):
                 raise ConfigError('Major/Minor应为0–65535，房间必须已登记')
             key = f'{major}-{minor}'
             if key in mapping:
                 raise ConfigError('信标编号重复: ' + key)
-            area = x.get('area') or room
+            floor = rooms[room].get('floor') if room is not None else x.get('floor')
+            if floor is None or not isinstance(floor, str) or not floor.strip() or len(floor) > 20:
+                raise ConfigError('公共区域信标需填写楼层')
+            area = x.get('area') or room or '公共区域'
             if not isinstance(area, str) or len(area) > 80:
                 raise ConfigError('区域名称无效')
-            mapping[key] = dict(room=room, area=area, floor=rooms[room].get('floor'))
+            mapping[key] = dict(room=room, area=area, floor=floor)
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
             row = db.execute('SELECT revision FROM terminal_beacons WHERE store=?', (self.store,)).fetchone()

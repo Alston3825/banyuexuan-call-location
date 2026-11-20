@@ -340,7 +340,7 @@ class HostService:
             self.terminal_configs.ack(kind, env.device_id, rev, status,
                                       '终端应用失败或连接验证超时，已回退' if status == 'failed' else '')
             if status in ('applied', 'applying'):
-                self.bus.publish(P.t_reply(self.cfg.store_id, env.device_id), self._msg('TERMINAL_CONFIRM', dict(revision=rev)))
+                self.bus.publish(P.t_reply(self.cfg.store_id, env.device_id), self._msg('TERMINAL_CONFIRM', dict(revision=rev, session=str(p.get('terminal_session', ''))[:64])))
         elif c['revision']:
             self.push_terminal_config(env.device_id)
 

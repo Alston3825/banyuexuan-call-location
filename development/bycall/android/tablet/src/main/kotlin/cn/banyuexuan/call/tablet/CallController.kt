@@ -40,13 +40,16 @@ class CallController(private val cfg: DeviceConfig, private val cfgVer: () -> St
         val activeBus = bus
         bus.onConnection = connection@{ up ->
             if (bus !== activeBus || !running) return@connection
+            if (!up) remote.disconnected()
             val idle = state.closed
             push(state.copy(connected = up, text = when {
                 up && state.text in setOf("正在连接…", "网络未连接,请直接联系护士站") -> "请选择您需要的服务"
                 !up && idle -> "网络未连接,请直接联系护士站"
                 else -> state.text }))
         }
-        bus.onConnectedHook = {
+        bus.onConnectedHook = connected@{
+            if (bus !== activeBus || !running) return@connected
+            remote.connected()
             heartbeat()
             bus.publish(Proto.tStatus(cfg.store, cfg.deviceId),
                 Proto.envelope(cfg.store, cfg.deviceId, Proto.STATUS, JSONObject().put("online", true)))
@@ -73,7 +76,7 @@ class CallController(private val cfg: DeviceConfig, private val cfgVer: () -> St
         }
     }
 
-    fun stop() { running = false; timer?.cancel(); bus.disconnect() }
+    fun stop() { remote.disconnected(); running = false; timer?.cancel(); bus.disconnect() }
 
     private fun heartbeat() {
         bus.publish(Proto.tHeartbeat(cfg.store, cfg.deviceId),

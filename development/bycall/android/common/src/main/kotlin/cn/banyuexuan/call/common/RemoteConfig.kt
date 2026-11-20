@@ -5,8 +5,8 @@ import org.json.JSONObject
 import java.net.URI
 
 /** Durable version + application receipt, with rollback when a new connection cannot reach this host. */
-class RemoteConfig(private val cfg: DeviceConfig, private val kind: String,
-                   private val changed: (Boolean) -> Unit, private val heartbeat: () -> Unit) {
+class RemoteConfig(private val cfg: ConfigStore, private val kind: String,
+                   private val changed: (Boolean) -> Unit, private val heartbeat: () -> Unit, private val now: () -> Long = { System.currentTimeMillis() }) {
     private val network = setOf("mqtt_host", "mqtt_port", "api_base")
     private val allowed = network + if (kind == "watch") setOf("heartbeat_s", "report_seconds", "beacon_uuid",
         "scan_on_s", "scan_period_s", "wifi_lock", "cpu_lock", "help_hold_ms", "voice_max_s", "quick_replies")
@@ -14,11 +14,15 @@ class RemoteConfig(private val cfg: DeviceConfig, private val kind: String,
     private val ranges = mapOf("mqtt_port" to (1..65535), "heartbeat_s" to (10..30), "report_seconds" to (7..60),
         "scan_on_s" to (1..60), "scan_period_s" to (7..60), "help_hold_ms" to (500..5000), "voice_max_s" to (5..30))
     @Volatile private var verifying = false
+    @Volatile private var session = ""
+    @Volatile private var connected = false
+    fun connected() { session = java.util.UUID.randomUUID().toString(); connected = true }
+    fun disconnected() { connected = false }
     private val revision get() = cfg["_terminal_revision"].toLongOrNull() ?: 0L
     private val result get() = cfg["_terminal_result"].ifBlank { "applied" }
 
     fun decorate(p: JSONObject): JSONObject = p.put("terminal_config_v", 1)
-        .put("terminal_revision", revision).put("terminal_result", result)
+        .put("terminal_revision", revision).put("terminal_result", result).put("terminal_session", session)
 
     fun settings(): JSONObject = try { JSONObject(cfg["_terminal_settings"].ifBlank { "{}" }) } catch (_: Exception) { JSONObject() }
 
@@ -28,6 +32,11 @@ class RemoteConfig(private val cfg: DeviceConfig, private val kind: String,
         if (v < revision) return
         if (v == revision) { heartbeat(); return }
         if (v <= 0) return
+        if (result == "applying") {
+            // Rebase a newer edit on the last working connection, not on an unverified address.
+            rollback()
+            if (result == "applying") return
+        }
         val s = p.optJSONObject("settings") ?: return
         val old = JSONObject()
         try {
@@ -53,14 +62,14 @@ class RemoteConfig(private val cfg: DeviceConfig, private val kind: String,
                 old.put(k, cfg[k])
                 values[k] = value.toString()
             }
-            require(s.optInt("scan_on_s", 2) <= s.optInt("scan_period_s", 10))
+            require(s.optInt("scan_on_s", 2) < s.optInt("scan_period_s", 10))
             val net = network.any { s.has(it) && s.get(it).toString() != cfg[it] }
             old.put("_terminal_settings", cfg["_terminal_settings"])
             values["_terminal_previous"] = old.toString()
             values["_terminal_settings"] = s.toString()
             values["_terminal_revision"] = v.toString()
             values["_terminal_result"] = if (net) "applying" else "applied"
-            values["_terminal_deadline"] = if (net) (System.currentTimeMillis() + 90_000).toString() else "0"
+            values["_terminal_deadline"] = if (net) (now() + 90_000).toString() else "0"
             check(cfg.commit(values))
             try { changed(net) } catch (_: Exception) { rollback(); return }
             if (!net) cfg.commit(mapOf("_terminal_previous" to ""))
@@ -74,7 +83,8 @@ class RemoteConfig(private val cfg: DeviceConfig, private val kind: String,
 
     @Synchronized fun confirm(p: JSONObject) {
         val v = revision
-        if (result != "applying" || p.optLong("revision") != v || verifying) return
+        if (result != "applying" || p.optLong("revision") != v || verifying || !connected || p.optString("session") != session) return
+        val verifiedSession = session
         verifying = true
         // MQTT confirmation proves the new broker path; also test HTTP for voice/API operations.
         Thread {
@@ -92,7 +102,7 @@ class RemoteConfig(private val cfg: DeviceConfig, private val kind: String,
             } catch (_: Exception) { }
             synchronized(this) {
                 verifying = false
-                if (ok && revision == v && result == "applying") {
+                if (ok && revision == v && result == "applying" && connected && session == verifiedSession) {
                     if (cfg.commit(mapOf("_terminal_result" to "applied", "_terminal_previous" to "", "_terminal_deadline" to "0"))) heartbeat()
                 }
             }
@@ -100,7 +110,7 @@ class RemoteConfig(private val cfg: DeviceConfig, private val kind: String,
     }
 
     @Synchronized fun tick() {
-        if (result == "applying" && System.currentTimeMillis() >= (cfg["_terminal_deadline"].toLongOrNull() ?: 0L)) rollback()
+        if (result == "applying" && now() >= (cfg["_terminal_deadline"].toLongOrNull() ?: 0L)) rollback()
     }
 
     private fun rollback() {

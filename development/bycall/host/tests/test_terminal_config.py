@@ -133,6 +133,19 @@ class TestTerminalConfig(Base):
         body['items']=[dict(major=16,minor=1602,room='unknown')]
         self.assertEqual(self.client.put('/admin/beacons',headers=self.h,json=body).status_code,400)
 
+    def test_public_area_beacon_does_not_mark_room_arrival(self):
+        body = dict(expected=0, items=[dict(major=16, minor=999, room=None, floor='16', area='走廊')])
+        r = self.client.put('/admin/beacons', headers=self.h, json=body)
+        self.assertEqual(r.status_code, 200)
+        fix = self.svc.locator.update('w-01', [dict(beacon_id='16-999', rssi=-45)])
+        self.assertIsNone(fix['room'])
+        self.assertEqual(fix['area'], '走廊')
+
+    def test_remote_settings_fail_closed_without_admin_key(self):
+        c = TestClient(create_app(self.svc, VoiceStore(os.path.join(self.tmp.name, 'no-key'))))
+        self.assertEqual(c.get('/admin/terminal-config').status_code, 503)
+        self.assertEqual(c.get('/terminal-config/station/station-test').status_code, 503)
+
     def test_configuration_store_isolated_by_store(self):
         self.save()
         other = TerminalConfigs(self.svc.terminal_configs.path, 'other-store')

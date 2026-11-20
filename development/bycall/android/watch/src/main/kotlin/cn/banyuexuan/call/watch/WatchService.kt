@@ -97,7 +97,7 @@ class WatchService : Service() {
         cfg = config(this)
         remote = cn.banyuexuan.call.common.RemoteConfig(cfg, "watch", { network ->
             applySettings(effectiveSettings())
-            if (network) { bus?.disconnect(); startBus() }
+            if (network) { remote.disconnected(); bus?.disconnect(); startBus() }
         }, { heartbeat() })
         applySettings(effectiveSettings())
         val nm = getSystemService(NotificationManager::class.java)
@@ -168,8 +168,10 @@ class WatchService : Service() {
         val s = cfg.store; val d = cfg.deviceId
         val b = MqttBus(cfg.mqttHost, cfg.mqttPort, d, d, cfg.mqttPassword, Proto.tStatus(s, d),
             Proto.envelope(s, d, Proto.STATUS, JSONObject().put("online", false)))
-        b.onConnection = { up -> if (bus === b) { WatchState.connected = up; WatchState.update { } } }   // 旧连接(服务重启前)的迟到回调不能覆盖新连接的状态
-        b.onConnectedHook = {
+        b.onConnection = { up -> if (bus === b) { WatchState.connected = up; if (!up) remote.disconnected(); WatchState.update { } } }   // 旧连接(服务重启前)的迟到回调不能覆盖新连接的状态
+        b.onConnectedHook = connected@{
+            if (bus !== b) return@connected
+            remote.connected()
             b.publish(Proto.tStatus(s, d), Proto.envelope(s, d, Proto.STATUS, JSONObject().put("online", true)))
             heartbeat()
         }

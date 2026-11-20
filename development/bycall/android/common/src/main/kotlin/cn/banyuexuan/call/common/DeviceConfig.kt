@@ -3,12 +3,12 @@ package cn.banyuexuan.call.common
 import android.content.Context
 
 /** Per-device settings kept in SharedPreferences. Defaults target the Android emulator (host = 10.0.2.2). */
-class DeviceConfig(ctx: Context, private val defaults: Map<String, String>) {
+class DeviceConfig(ctx: Context, private val defaults: Map<String, String>) : ConfigStore {
     private val sp = ctx.applicationContext.getSharedPreferences("device", Context.MODE_PRIVATE)
-    operator fun get(key: String): String = sp.getString(key, null) ?: defaults[key] ?: ""
+    override operator fun get(key: String): String = sp.getString(key, null) ?: defaults[key] ?: ""
     operator fun set(key: String, value: String) { sp.edit().putString(key, value.trim()).apply() }
     /** Commit values and remote revision atomically before reporting an acknowledgement. */
-    @Synchronized fun commit(values: Map<String, String>): Boolean {
+    @Synchronized override fun commit(values: Map<String, String>): Boolean {
         val edit = sp.edit()
         values.forEach { (k, v) -> edit.putString(k, v) }
         return edit.commit()
@@ -16,9 +16,9 @@ class DeviceConfig(ctx: Context, private val defaults: Map<String, String>) {
     val keys get() = defaults.keys.toList()
     val mqttHost get() = this["mqtt_host"]
     val mqttPort get() = this["mqtt_port"].toIntOrNull() ?: 1883
-    val store get() = this["store_id"]
-    val deviceId get() = this["device_id"]
-    val apiBase get() = this["api_base"].trimEnd('/')
+    override val store get() = this["store_id"]
+    override val deviceId get() = this["device_id"]
+    override val apiBase get() = this["api_base"].trimEnd('/')
     /** MQTT 账号固定为 device_id;密码为空则匿名连接(仅开发用)。 */
     val mqttPassword get() = this["mqtt_password"]
     val apiKey get() = this["api_key"]

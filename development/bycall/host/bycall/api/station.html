@@ -8,8 +8,8 @@
 :root{--bg:#0f1720;--panel:#18222e;--line:#263444;--text:#e8eef5;--mute:#8a9bb0;--ok:#3ecf8e;--warn:#f5a524;--bad:#ff4d4f;--blue:#4c9aff}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}
-header{display:flex;align-items:center;gap:20px;padding:10px 20px;background:#0b1118;border-bottom:1px solid var(--line)}
-header h1{font-size:20px;margin:0;font-weight:600}
+header{display:flex;align-items:center;gap:10px;padding:10px 20px;background:#0b1118;border-bottom:1px solid var(--line)}
+header h1{max-width:240px;font-size:18px;margin:0;font-weight:600}
 header .sp{flex:1}
 .pill{padding:3px 12px;border-radius:99px;background:var(--panel);color:var(--mute);font-size:14px}
 .pill.bad{background:var(--bad);color:#fff}
@@ -80,11 +80,12 @@ button.pri{background:#4c9aff;border-color:#4c9aff;color:#06101c;font-weight:700
 
 main{grid-template-columns:minmax(0,1fr) 520px}
 .right{grid-template-rows:minmax(0,2fr) minmax(0,1fr)}
-#watches{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;align-content:start}
+.right>section:last-child{grid-row:1}.right>section:first-child{grid-row:2}
+#watches{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));grid-auto-rows:minmax(32px,1fr);gap:4px;align-content:start}
 .wrow{display:flex;flex-direction:column;align-items:stretch;gap:2px;padding:4px;border:1px solid var(--line);border-radius:4px;min-width:0;font-size:10px}
 .wrow>div:first-child{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .wrow>div:last-child{display:flex;justify-content:space-between;gap:2px}
-.wrow .wst,.wrow .bat{font-size:11px}.wrow.vacant{color:var(--mute);min-height:37px;justify-content:center;text-align:center;opacity:.45}
+.wrow .wst,.wrow .bat{font-size:11px}.wrow.vacant{color:var(--mute);min-height:32px;justify-content:center;text-align:center;opacity:.45}
 @media(max-width:1000px){main{grid-template-columns:1fr}.right{min-height:600px}}
 </style>
 </head>
