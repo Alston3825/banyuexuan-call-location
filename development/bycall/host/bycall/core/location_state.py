@@ -64,7 +64,7 @@ class LocationReports:
                     reported_beacon_count=len(diag.get('readings', [])),
                     reported_sample_count=sum(r.get('sample_count') or 1 for r in diag.get('readings', [])))
         reason = ('host_restarted' if row['epoch'] != self.epoch else 'offline' if not online else
-                  'expired' if age > ttl or age < -5 else None)
+                  'expired' if age >= ttl or age < -5 else None)
         if reason:
             return dict(base, location_status='stale', location_reason=reason)
         fix = row.get('fix')

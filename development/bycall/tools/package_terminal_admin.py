@@ -17,7 +17,7 @@ if not a.name_prefix.replace('-', '').replace('_', '').isalnum():
 out = Path(a.out).resolve()
 out.mkdir(parents=True, exist_ok=True)
 skip = {'build', '.gradle', '.git', '__pycache__', 'models', 'data', 'auth', 'config', 'dist', 'node_modules'}
-allowed_suffixes = {'.py', '.kt', '.kts', '.xml', '.html', '.md', '.sh', '.properties', '.yml', '.bat'}
+allowed_suffixes = {'.py', '.kt', '.kts', '.xml', '.html', '.md', '.sh', '.properties', '.yml', '.bat', '.mjs'}
 explicit = {'android/gradlew', 'host/Dockerfile', 'host/requirements.txt', 'host/.env.example',
             'host/bycall/VERSION', 'host/bycall/custom/banyuexuan/demo_pilot.json',
             'host/mosquitto/mosquitto.conf', 'host/mosquitto/mosquitto.prod.conf',

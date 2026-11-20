@@ -1186,7 +1186,7 @@ class HostService:
         saved = self.terminal_configs.beacons()['mapping']
         self.locator.beacons = saved if saved is not None else self.cfg.beacons
         interval = p.report_interval_s or 10
-        readings = [r.model_dump() for r in p.readings if r.age_ms is None or r.age_ms <= interval * 3000]
+        readings = [r.model_dump() for r in p.readings if r.age_ms is None or r.age_ms < interval * 3000]
         scan_ok = p.scan_status in (None, 'ok')
         simulated = p.observation_source == 'simulated'
         if not staff or not scan_ok or simulated:

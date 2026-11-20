@@ -169,7 +169,9 @@ section.watch-panel h2{padding:10px 14px;flex-wrap:wrap;gap:10px}
 const $ = id => document.getElementById(id);
 const STATE = {pending: '待接单', claimed: '已接单,前往中', arrived: '已到场处理中', completed: '已完成', cancelled: '已取消'};
 let LATE_SECONDS = 30;     // 超过即标红(试行值,与主机升级时间保持一致)
-let skew = 0, seen = null, soundOn = false, ctx = null, snap = null, lastOk = 0;
+let skew = 0, seen = null, soundOn = false, ctx = null, snap = null, lastOk = 0, lastSuccessMonotonic = 0;
+const bootMonotonic = performance.now();
+function sourceDisconnected(){const timeout=((snap&&snap.location_state&&snap.location_state.consumer_timeout_seconds)||8)*1000;return lastOk?Math.max(Date.now()-lastOk,performance.now()-lastSuccessMonotonic)>=timeout:performance.now()-bootMonotonic>=timeout;}
 const AUTO_SOUND = new URLSearchParams(location.search).get('sound') === '1';   // 主机自带屏幕(kiosk)开机即开启声音提醒
 
 function getKey() {
@@ -372,7 +374,7 @@ function tick() {
     d.querySelector('.t').textContent = fmtDur(ms);
     d.classList.toggle('late', d.dataset.state === 'pending' && ms > LATE_SECONDS * 1000);
   });
-  $('err').style.display = (Date.now() - lastOk > 8000 && lastOk) ? 'block' : 'none';
+  $('err').style.display = sourceDisconnected() ? 'block' : 'none';
   document.querySelectorAll('#watches .wst').forEach(updateWatchState);
   document.querySelectorAll('#watches .watch-tile[data-sn]').forEach(updateWatchMeasurements);
 }
@@ -386,7 +388,7 @@ function fmtAgo(s) {
   return Math.floor(s / 86400) + '天';
 }
 function updateWatchState(x) {
-  if(lastOk && Date.now()-lastOk>8000){x.className='wst slow';x.textContent='连接中断 · 状态未知';return;}
+  if(sourceDisconnected()){x.className='wst slow';x.textContent='连接中断 · 状态未知';return;}
   const last = x.dataset.last ? Date.parse(x.dataset.last) : 0, since = x.dataset.offlineSince ? Date.parse(x.dataset.offlineSince) : last;
   const ago = (x.dataset.online === '1' ? last : since) ? (now() - (x.dataset.online === '1' ? last : since)) / 1000 : null;
   if (x.dataset.online === '1') {
@@ -399,7 +401,7 @@ function updateWatchState(x) {
   }
 }
 function updateWatchMeasurements(card) {
-  const current = now(), disconnected=Boolean(lastOk && Date.now()-lastOk>8000);
+  const current = now(), disconnected=sourceDisconnected();
   for (const kind of ['heart','pressure']) {
     const span=card.querySelector('[data-metric="'+kind+'"]'), at=Date.parse(span.dataset.at||'');
     const age=(current-at)/1000, fresh=!disconnected&&span.dataset.state==='fresh'&&Number.isFinite(age)&&age>=-30&&age<=Number(span.dataset.ttl||600);
@@ -491,7 +493,7 @@ async function poll() {
     if (r.status === 401) { lastOk = 0; $('err').textContent = '密钥不对或未设置,点右上角“⚙ 设置”填写大屏密钥'; $('err').style.display = 'block'; return; }
     if (!r.ok) throw new Error(r.status);
     const s = await r.json();
-    skew = Date.parse(s.now) - Date.now(); lastOk = Date.now();
+    skew = Date.parse(s.now) - Date.now(); lastOk = Date.now(); lastSuccessMonotonic = performance.now();
     // 主机升级后版本号变了:整页刷新,大屏自己也换成新版
     if (bootVersion === null) bootVersion = s.version; else if (s.version && s.version !== bootVersion) { location.reload(); return; }
     $('err').textContent = '与主机失去连接,画面可能不是最新的';
