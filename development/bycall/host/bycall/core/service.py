@@ -1045,6 +1045,10 @@ class HostService:
 
     # ---- 心跳 / 在线 / 定位 / 体征 ------------------------------------
     def _h_heartbeat(self, env):
+        # Master-data sync can introduce a watch between periodic registry refreshes.
+        if not self.watches.get(env.device_id) and (env.device_id in self.cfg.spare_watches or
+                any(x.get('watch') == env.device_id for x in self.cfg.staff.values())):
+            self.watches.sync_from_config(self.cfg.staff, self.cfg.spare_watches, self._now().isoformat())
         self._terminal_heartbeat(env)
         p = P.HeartbeatPayload(**env.payload)
         now = self._now().isoformat()
@@ -1096,6 +1100,9 @@ class HostService:
         if not staff:
             return self._reject(env, 'not_bound' if self.watches.get(env.device_id) else 'unknown_device')
         p = P.LocationPayload(**env.payload)
+        saved = self.terminal_configs.beacons()['mapping']
+        if saved is not None:
+            self.locator.beacons = saved
         fix = self.locator.update(env.device_id, [r.model_dump() for r in p.readings])
         self.tele.add_location(env.device_id, staff, fix, self._now().isoformat())
         if fix and fix['room']:

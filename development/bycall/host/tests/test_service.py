@@ -84,7 +84,7 @@ class TestLoop(Base):
         self.online('w-01', 'w-02', 'w-03')
         self.clock.advance(16)
         cid = self.call()
-        self.clock.advance(16)
+        self.clock.advance(self.svc.cfg.group_after + 1)
         self.svc.tick()
         self.assertTrue(self.bus.sent(P.t_dispatch_watch(S, 'w-02'), P.CALL_DISPATCH))
         self.accept('w-01', cid)
@@ -106,7 +106,7 @@ class TestLoop(Base):
         self.online('w-01', 'w-02', 'w-03')
         self.call()
         self.assertFalse(self.bus.sent(P.t_dispatch_watch(S, 'w-02'), P.CALL_DISPATCH))
-        self.clock.advance(20)
+        self.clock.advance(self.svc.cfg.group_after + 1)
         self.svc.tick()
         self.assertTrue(self.bus.sent(P.t_dispatch_watch(S, 'w-02'), P.CALL_DISPATCH))
 

@@ -15,9 +15,17 @@ class CallController(private val cfg: DeviceConfig, private val cfgVer: () -> St
                      private val onConfig: (JSONObject) -> Unit, private val onState: (State) -> Unit) {
     data class State(val connected: Boolean, val text: String, val step: Int, val callId: String?, val closed: Boolean)
 
-    private val bus = MqttBus(cfg.mqttHost, cfg.mqttPort, "tab-" + cfg.deviceId, cfg.deviceId, cfg.mqttPassword,
+    private fun createBus() = MqttBus(cfg.mqttHost, cfg.mqttPort, "tab-" + cfg.deviceId, cfg.deviceId, cfg.mqttPassword,
         Proto.tStatus(cfg.store, cfg.deviceId),
         Proto.envelope(cfg.store, cfg.deviceId, Proto.STATUS, JSONObject().put("online", false)))
+    private var bus = createBus()
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    private var running = false
+    private var lastHeartbeat = 0L
+    private val remote = cn.banyuexuan.call.common.RemoteConfig(cfg, "tablet", { network ->
+        if (network) { stop(); start() }
+        push(state)
+    }, { heartbeat() })
     private val queue = CopyOnWriteArrayList<Pair<String, JSONObject>>()   // unsent requests while offline
     private var timer: Timer? = null
     @Volatile private var state = State(false, "正在连接…", 0, null, true)
@@ -26,7 +34,12 @@ class CallController(private val cfg: DeviceConfig, private val cfgVer: () -> St
     val callId get() = state.callId
 
     fun start() {
-        bus.onConnection = { up ->
+        timer?.cancel()
+        running = true
+        bus = createBus()
+        val activeBus = bus
+        bus.onConnection = connection@{ up ->
+            if (bus !== activeBus || !running) return@connection
             val idle = state.closed
             push(state.copy(connected = up, text = when {
                 up && state.text in setOf("正在连接…", "网络未连接,请直接联系护士站") -> "请选择您需要的服务"
@@ -34,6 +47,7 @@ class CallController(private val cfg: DeviceConfig, private val cfgVer: () -> St
                 else -> state.text }))
         }
         bus.onConnectedHook = {
+            heartbeat()
             bus.publish(Proto.tStatus(cfg.store, cfg.deviceId),
                 Proto.envelope(cfg.store, cfg.deviceId, Proto.STATUS, JSONObject().put("online", true)))
             queue.forEach { (t, m) -> bus.publish(t, m) }; queue.clear()    // host dedupes by msg_id
@@ -41,6 +55,8 @@ class CallController(private val cfg: DeviceConfig, private val cfgVer: () -> St
         bus.subscribe(Proto.tFeedback(cfg.store, cfg["room_id"])) { _, m -> onFeedback(m) }
         bus.subscribe(Proto.tReply(cfg.store, cfg.deviceId)) { _, m ->
             when (m.optString("type")) {
+                "TERMINAL_CONFIG" -> m.optJSONObject("payload")?.let { p -> main.post { if (running) remote.receive(p) } }
+                "TERMINAL_CONFIRM" -> m.optJSONObject("payload")?.let { p -> main.post { if (running) remote.confirm(p) } }
                 Proto.CMD_REJECTED -> push(state.copy(text = "发送失败,请直接联系护士站"))
                 Proto.DEVICE_CONFIG -> m.optJSONObject("payload")?.let(onConfig)
                 Proto.APP_UPDATE -> if (m.optJSONObject("payload")?.optString("app") == "tablet") onAppUpdate?.invoke()
@@ -49,13 +65,21 @@ class CallController(private val cfg: DeviceConfig, private val cfgVer: () -> St
         bus.connect()
         timer = Timer(true).apply {
             schedule(object : TimerTask() { override fun run() {
-                bus.publish(Proto.tHeartbeat(cfg.store, cfg.deviceId),
-                    Proto.envelope(cfg.store, cfg.deviceId, Proto.HEARTBEAT, JSONObject().put("cfg_ver", cfgVer())), qos0 = true)
-            } }, 5000, 30000)
+                main.post { if (running) remote.tick() }
+                val now = System.currentTimeMillis()
+                val every = (cfg["heartbeat_s"].toLongOrNull() ?: 30L).coerceIn(10L, 30L) * 1000
+                if (now - lastHeartbeat >= every) { lastHeartbeat = now; heartbeat() }
+            } }, 5000, 1000)
         }
     }
 
-    fun stop() { timer?.cancel(); bus.disconnect() }
+    fun stop() { running = false; timer?.cancel(); bus.disconnect() }
+
+    private fun heartbeat() {
+        bus.publish(Proto.tHeartbeat(cfg.store, cfg.deviceId),
+            Proto.envelope(cfg.store, cfg.deviceId, Proto.HEARTBEAT,
+                remote.decorate(JSONObject().put("cfg_ver", cfgVer()))), qos0 = true)
+    }
 
     private fun push(s: State) { state = s; onState(s) }
 

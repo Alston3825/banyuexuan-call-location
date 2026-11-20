@@ -164,6 +164,7 @@ class MainActivity : Activity() {
     }
 
     private fun render(s: CallController.State) {
+        voiceBtn.visibility = if (cfg["voice_enabled"] == "false" && recorder == null) View.GONE else View.VISIBLE
         title.text = "${cfg["room_label"]} 房    " + if (s.connected) "● 已连接" else "○ 未连接"
         title.setTextColor(if (s.connected) Color.parseColor("#1b7f3b") else Color.parseColor("#c0392b"))
         receipt.text = s.text
@@ -245,6 +246,7 @@ class MainActivity : Activity() {
 
     /** Microphone is open only while the button is held. */
     private fun startRec() {
+        if (cfg["voice_enabled"] == "false") return
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             receipt.text = "请允许“录音”权限后再试"; requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1); return
         }

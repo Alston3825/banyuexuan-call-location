@@ -77,6 +77,15 @@ section h2 b{color:var(--text);font-size:22px}
 .set .ok{color:var(--ok)}.set .bad{color:var(--bad)}
 button.pri{background:#4c9aff;border-color:#4c9aff;color:#06101c;font-weight:700}
 @media (max-width:900px){main{grid-template-columns:1fr;overflow:auto}body{overflow:auto;height:auto}}
+
+main{grid-template-columns:minmax(0,1fr) 520px}
+.right{grid-template-rows:minmax(0,2fr) minmax(0,1fr)}
+#watches{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;align-content:start}
+.wrow{display:flex;flex-direction:column;align-items:stretch;gap:2px;padding:4px;border:1px solid var(--line);border-radius:4px;min-width:0;font-size:10px}
+.wrow>div:first-child{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.wrow>div:last-child{display:flex;justify-content:space-between;gap:2px}
+.wrow .wst,.wrow .bat{font-size:11px}.wrow.vacant{color:var(--mute);min-height:37px;justify-content:center;text-align:center;opacity:.45}
+@media(max-width:1000px){main{grid-template-columns:1fr}.right{min-height:600px}}
 </style>
 </head>
 <body>
@@ -84,14 +93,14 @@ button.pri{background:#4c9aff;border-color:#4c9aff;color:#06101c;font-weight:700
 <div id="err">与主机失去连接,画面可能不是最新的</div>
 <div id="updbar"></div>
 <header>
-  <h1>护士站 · <span id="store">—</span></h1>
+  <h1><span id="station-title">护士站</span> · <span id="store">—</span></h1>
   <span class="pill" id="cnt">—</span>
   <span class="sp"></span>
   <span class="pill" id="hostinfo" title="主机最近一次数据库备份时间与磁盘剩余空间"></span>
   <button id="snd">🔔 启用声音提醒</button>
   <button id="gb">自定义按钮</button>
   <button id="rb">按钮接收岗位</button>
-  <button id="setbtn">⚙ 设置</button>
+  <button id="setbtn">⚙ 设置</button><button id="terminal-admin">终端后台</button>
   <span id="clock"></span>
 </header>
 <main>
@@ -151,7 +160,7 @@ button.pri{background:#4c9aff;border-color:#4c9aff;color:#06101c;font-weight:700
 <script>
 const $ = id => document.getElementById(id);
 const STATE = {pending: '待接单', claimed: '已接单,前往中', arrived: '已到场处理中', completed: '已完成', cancelled: '已取消'};
-const LATE_SECONDS = 30;     // 超过即标红(试行值,与主机升级时间保持一致)
+let LATE_SECONDS = 30;     // 超过即标红(试行值,与主机升级时间保持一致)
 let skew = 0, seen = null, soundOn = false, ctx = null, snap = null, lastOk = 0;
 const AUTO_SOUND = new URLSearchParams(location.search).get('sound') === '1';   // 主机自带屏幕(kiosk)开机即开启声音提醒
 
@@ -164,6 +173,36 @@ function askKey() {
   const k = prompt('请输入主机 API 密钥', getKey());
   if (k !== null) { try { localStorage.setItem('bycall_key', k.trim()); } catch (e) {} poll(); }
 }
+// A browser installation has its own stable id; screens never share an acknowledgement.
+let stationId;
+try { stationId=localStorage.getItem('bycall_station_id'); if(!stationId){stationId='station-'+(crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2));localStorage.setItem('bycall_station_id',stationId)} } catch(e) { stationId='station-session-'+Math.random().toString(36).slice(2); }
+let stationRevision=-1, stationSettings={title:'护士站',sound_enabled:true,recent_minutes:15,late_seconds:30,watch_slots:40,scale_percent:100};
+$('terminal-admin').onclick=()=>window.open('/admin/terminals','_blank');
+function applyStationSettings(s){
+  stationSettings={...stationSettings,...s}; LATE_SECONDS=stationSettings.late_seconds;
+  $('station-title').textContent=stationSettings.title;
+  document.body.style.zoom=stationSettings.scale_percent/100;
+  if(!stationSettings.sound_enabled) soundOn=false;
+  else if(ctx && ctx.state==='running') soundOn=true;
+  $('snd').textContent=soundOn?'🔔 声音已开启':(stationSettings.sound_enabled?'🔔 点击启用声音':'🔕 后台已关闭声音');
+  if(snap) render(snap);
+}
+async function terminalConfigLoop(){
+  for(;;){
+    try{
+      const key=getKey();if(!key)throw Error('未设置密钥');
+      const control=new AbortController(), timeout=setTimeout(()=>control.abort(),25000);
+      let r;try{r=await fetch('/terminal-config/station/'+encodeURIComponent(stationId)+'?after='+stationRevision,{headers:{'X-Api-Key':key},signal:control.signal,cache:'no-store'})}finally{clearTimeout(timeout)}
+      if(!r.ok)throw Error('配置连接失败'); const c=await r.json();
+      if(c.revision!==stationRevision){
+        try{applyStationSettings(c.settings)}catch(e){await fetch('/terminal-config/station/'+encodeURIComponent(stationId)+'/ack',{method:'POST',headers:{'X-Api-Key':key,'Content-Type':'application/json'},body:JSON.stringify({revision:c.revision,status:'failed'})});throw e}
+        if(c.revision>0){const ack=await fetch('/terminal-config/station/'+encodeURIComponent(stationId)+'/ack',{method:'POST',headers:{'X-Api-Key':key,'Content-Type':'application/json'},body:JSON.stringify({revision:c.revision,status:'applied'})});if(!ack.ok)throw Error('回执未确认')}
+        stationRevision=c.revision;
+      }
+    }catch(e){await new Promise(resolve=>setTimeout(resolve,5000))}
+  }
+}
+setTimeout(terminalConfigLoop,0);
 // ---- ⚙ 设置:连接、声音、版本与一键升级主机 ----
 let upd = null, bootVersion = null, updTimer = null;
 function openSettings() { renderSettings(); if (!$('sdlg').open) $('sdlg').showModal(); loadUpdate(); }
@@ -188,7 +227,7 @@ function renderSettings() {
       box.appendChild(el('div', j.ok === false ? 'bad' : j.ok ? 'ok' : null, (j.ok === false ? '✗ ' : j.ok ? '✓ ' : '… ') + (j.msg || j.stage)));
   }
   const L = $('s-links'); L.replaceChildren();
-  [['⌚ 换表', '/swap'], ['📊 续航/送达报表', '/report'], ['💾 备份', '/backup'], ['🔧 主机更新页', 'http://' + location.hostname + ':8200/']]
+  [['⚙ 终端统一设置', '/admin/terminals'], ['⌚ 换表', '/swap'], ['📊 续航/送达报表', '/report'], ['💾 备份', '/backup'], ['🔧 主机更新页', 'http://' + location.hostname + ':8200/']]
     .forEach(([t, u]) => { const a = el('a', null, t); a.href = u; a.target = '_blank'; L.appendChild(a); });
 }
 async function loadUpdate() {
@@ -214,7 +253,9 @@ $('s-save').onclick = () => { try { localStorage.setItem('bycall_key', $('s-key'
 $('s-snd').onclick = () => { $('snd').onclick(); renderSettings(); };
 setInterval(loadUpdate, 60000);
 $('snd').onclick = () => {
+  if(!stationSettings.sound_enabled) return;
   ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+  ctx.resume().catch(()=>{});
   soundOn = !soundOn; $('snd').textContent = soundOn ? '🔔 声音已开启' : '🔔 启用声音提醒';
   if (soundOn) beep(1);
 };
@@ -364,7 +405,7 @@ function renderWatches(list) {
     right.appendChild(bat);
     r.append(l, right); box.appendChild(r);
   });
-  if (!list.length) box.appendChild(el('div', 'empty', '还没有登记手表'));
+  for (let i=list.length; i<Math.max(40, stationSettings.watch_slots); i++) box.appendChild(el('div', 'wrow vacant', '待登记'));
   const inUse = list.filter(w => w.bound_staff);
   $('n-watch').textContent = inUse.filter(w => w.online).length + '/' + inUse.length + ' 在岗在线';
 }
@@ -430,7 +471,7 @@ function render(s) {
 async function poll() {
   const key = getKey();
   try {
-    const r = await fetch('/station/snapshot', {headers: {'X-Api-Key': key}, cache: 'no-store'});
+    const r = await fetch('/station/snapshot?recent=' + stationSettings.recent_minutes, {headers: {'X-Api-Key': key}, cache: 'no-store'});
     if (r.status === 401) { lastOk = 0; $('err').textContent = '密钥不对或未设置,点右上角“⚙ 设置”填写大屏密钥'; $('err').style.display = 'block'; return; }
     if (!r.ok) throw new Error(r.status);
     const s = await r.json();

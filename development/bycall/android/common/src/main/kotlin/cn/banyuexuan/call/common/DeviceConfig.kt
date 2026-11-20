@@ -7,6 +7,12 @@ class DeviceConfig(ctx: Context, private val defaults: Map<String, String>) {
     private val sp = ctx.applicationContext.getSharedPreferences("device", Context.MODE_PRIVATE)
     operator fun get(key: String): String = sp.getString(key, null) ?: defaults[key] ?: ""
     operator fun set(key: String, value: String) { sp.edit().putString(key, value.trim()).apply() }
+    /** Commit values and remote revision atomically before reporting an acknowledgement. */
+    @Synchronized fun commit(values: Map<String, String>): Boolean {
+        val edit = sp.edit()
+        values.forEach { (k, v) -> edit.putString(k, v) }
+        return edit.commit()
+    }
     val keys get() = defaults.keys.toList()
     val mqttHost get() = this["mqtt_host"]
     val mqttPort get() = this["mqtt_port"].toIntOrNull() ?: 1883

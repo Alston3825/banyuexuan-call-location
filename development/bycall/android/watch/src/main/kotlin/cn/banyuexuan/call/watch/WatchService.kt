@@ -75,6 +75,8 @@ class WatchService : Service() {
     }
 
     private lateinit var cfg: DeviceConfig
+    private lateinit var remote: cn.banyuexuan.call.common.RemoteConfig
+    private var lastHeartbeat = 0L
     private var bus: MqttBus? = null
     private var timer: Timer? = null
     private val window = Beacons.Window()
@@ -93,6 +95,11 @@ class WatchService : Service() {
         super.onCreate()
         instance = this
         cfg = config(this)
+        remote = cn.banyuexuan.call.common.RemoteConfig(cfg, "watch", { network ->
+            applySettings(effectiveSettings())
+            if (network) { bus?.disconnect(); startBus() }
+        }, { heartbeat() })
+        applySettings(effectiveSettings())
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CH_SERVICE, "运行状态", NotificationManager.IMPORTANCE_LOW))
         nm.createNotificationChannel(NotificationChannel(CH_BATTERY, "低电量提醒", NotificationManager.IMPORTANCE_DEFAULT))
@@ -201,6 +208,8 @@ class WatchService : Service() {
                 }
                 Proto.HELP_STATE -> onHelpState(id, p)
                 Proto.CHAT_MSG -> onChat(p)
+                "TERMINAL_CONFIG" -> main.post { remote.receive(p) }
+                "TERMINAL_CONFIRM" -> main.post { remote.confirm(p) }
                 Proto.WATCH_BIND -> onWatchBind(p)
                 Proto.WATCH_RESET -> onReset()
                 Proto.APP_UPDATE -> if (p.optString("app") == "watch") onAppUpdate(p)
@@ -267,7 +276,10 @@ class WatchService : Service() {
 
     private fun onWatchBind(p: JSONObject) {
         val staff = str(p, "staff")
-        p.optJSONObject("settings")?.let { applySettings(it) }
+        p.optJSONObject("settings")?.let { original ->
+            cfg["_watch_host_settings"] = original.toString()
+            applySettings(effectiveSettings())
+        }
         WatchState.update {
             val before = WatchState.staffId
             val wasSpare = WatchState.wearingSpare
@@ -289,6 +301,17 @@ class WatchService : Service() {
                 else -> WatchState.notice
             }
         }
+    }
+
+    private fun effectiveSettings(): JSONObject {
+        val s = JSONObject().put("scan_on_s", 2).put("scan_period_s", 10).put("help_hold_ms", 1000)
+            .put("voice_max_s", 30).put("wifi_lock", true).put("cpu_lock", true)
+            .put("quick_replies", JSONArray(listOf("收到", "马上到", "需要帮忙")))
+        val policy = try { JSONObject(cfg["_watch_host_settings"].ifBlank { "{}" }) } catch (_: Exception) { JSONObject() }
+        for (k in policy.keys()) s.put(k, policy.get(k))
+        val overrides = remote.settings()
+        for (k in overrides.keys()) s.put(k, overrides.get(k))
+        return s
     }
 
     private fun applySettings(s: JSONObject) {
@@ -445,13 +468,18 @@ class WatchService : Service() {
     private val scanOff: Runnable = object : Runnable {
         override fun run() {
             stopScanNow()
-            try { reportLocation() } catch (_: Throwable) { }
             main.postDelayed(scanOn, periodMs() - onMs())
         }
     }
 
-    private fun startScanCycle() { stopScanCycle(); main.post(scanOn) }
-    private fun stopScanCycle() { main.removeCallbacks(scanOn); main.removeCallbacks(scanOff); stopScanNow() }
+    private val locationReport = object : Runnable {
+        override fun run() {
+            try { reportLocation() } catch (_: Throwable) { }
+            main.postDelayed(this, (cfg["report_seconds"].toLongOrNull() ?: 10L).coerceIn(7L, 60L) * 1000)
+        }
+    }
+    private fun startScanCycle() { stopScanCycle(); main.post(scanOn); main.postDelayed(locationReport, 3000) }
+    private fun stopScanCycle() { main.removeCallbacks(locationReport); main.removeCallbacks(scanOn); main.removeCallbacks(scanOff); stopScanNow() }
 
     @android.annotation.SuppressLint("MissingPermission")   // 已按系统版本手动检查权限,且整体包在 try 里
     private fun startScanNow() {
@@ -475,7 +503,12 @@ class WatchService : Service() {
 
     private fun startTimers() {
         timer = Timer(true).apply {
-            schedule(object : TimerTask() { override fun run() { try { heartbeat() } catch (_: Throwable) { } } }, 5000, 30000)
+            schedule(object : TimerTask() { override fun run() { try {
+                main.post { remote.tick() }
+                val now = System.currentTimeMillis()
+                val every = (cfg["heartbeat_s"].toLongOrNull() ?: 30L).coerceIn(10L, 30L) * 1000
+                if (now - lastHeartbeat >= every) { lastHeartbeat = now; heartbeat() }
+            } catch (_: Throwable) { } } }, 5000, 1000)
             schedule(object : TimerTask() { override fun run() { try { reportHeartRate() } catch (_: Throwable) { } } }, 60000, 300000)
         }
     }
@@ -518,7 +551,7 @@ class WatchService : Service() {
         val p = JSONObject().put("battery", bat.coerceIn(0, 100)).put("charging", WatchState.charging)
             .put("caps", JSONArray(CAPS)).put("staff", WatchState.staffId ?: JSONObject.NULL)
         wifiRssi()?.let { p.put("wifi_rssi", it) }
-        bus?.publish(Proto.tHeartbeat(cfg.store, cfg.deviceId), Proto.envelope(cfg.store, cfg.deviceId, Proto.HEARTBEAT, p), qos0 = true)
+        bus?.publish(Proto.tHeartbeat(cfg.store, cfg.deviceId), Proto.envelope(cfg.store, cfg.deviceId, Proto.HEARTBEAT, remote.decorate(p)), qos0 = true)
     }
 
     private fun reportLocation() {
