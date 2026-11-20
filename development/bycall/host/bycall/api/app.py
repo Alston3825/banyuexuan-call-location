@@ -238,20 +238,19 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
                 for c in svc.core.list_calls(store=cfg.store_id, state=st, limit=recent)]
         done.sort(key=lambda c: c['ended_at'] or '', reverse=True)
         dev = {d['device']: d for d in svc.tele.devices()}
-        loc = {l['watch']: l for l in svc.location_views()}
+        board = svc.watch_board()
+        by_watch = {v['sn']: v for v in board}
         nurses = []
         for sid, info in cfg.staff.items():
             w = svc.watch_of(sid)                     # 当前戴的表(换表后是备用表)
-            d, l = dev.get(w, {}), loc.get(w, {})
-            reg = svc.watches.get(w) if w else None
-            vital = svc.watch_vitals(reg, bool(d.get('online'))) if reg else {}
+            d, vital = dev.get(w, {}), by_watch.get(w, {})
             nurses.append(dict(staff=sid, name=info.get('name', sid), watch=w,
-                               online=bool(d.get('online')), battery=d.get('battery'),
+                               online=bool(vital.get('online')), battery=d.get('battery'),
                                last_seen=d.get('last_seen'), status=svc.roster.state(sid),
-                               area=l.get('area'), location_room=l.get('room'), located_at=l.get('at'),
-                               location_status=l.get('location_status', 'unknown'), location_reason=l.get('location_reason'),
+                               area=vital.get('location_area'), location_room=vital.get('location_room'), located_at=vital.get('located_at'),
+                               location_status=vital.get('location_status', 'unknown'), location_reason=vital.get('location_reason'),
                                heart_rate=vital.get('heart_rate'), blood_pressure=vital.get('blood_pressure'),
-                               active=[dict(call_id=i, room=r, state=s) for i, r, s in svc._active_calls(sid)]))
+                               active=vital.get('active', [])))
         rooms = [dict(room=r, floor=v.get('floor'), room_no=v.get('room_no'),
                       guest_buttons=[g['label'] for g in svc.guest_buttons(r)], tablet=v.get('tablet'),
                       online=bool(dev.get(v.get('tablet'), {}).get('online')),
@@ -259,7 +258,7 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
                       last_seen=dev.get(v.get('tablet'), {}).get('last_seen'))
                  for r, v in cfg.rooms.items()]
         return dict(store_id=cfg.store_id, now=svc._now().isoformat(), active=active, recent=done[:recent],
-                    nurses=nurses, rooms=rooms, watches=svc.watch_board(),
+                    nurses=nurses, rooms=rooms, watches=board,
                     latency_ms=svc.latency[-20:],
                     host=host_status.snapshot() if host_status else None, version=VERSION)
 

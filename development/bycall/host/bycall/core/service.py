@@ -794,7 +794,7 @@ class HostService:
         r = self.watches.get(sn) or {}
         d = self._device(sn)
         return dict(sn=sn, status=r.get('status'), status_text=STATUS_TEXT.get(r.get('status'), r.get('status')),
-                    battery=d.get('battery'), charging=bool(d.get('charging')), online=self._fresh_online(sn),
+                    battery=d.get('battery'), charging=bool(d.get('charging')), online=bool(d.get('online')) and d.get('last_seen', '') >= (self._now() - OFFLINE_AFTER).isoformat(),
                     last_seen=d.get('last_seen'), offline_since=d.get('offline_since'), wifi_rssi=d.get('wifi_rssi'), spare=bool(r.get('spare')),
                     bound_staff=r.get('bound_staff'),
                     bound_name=self.cfg.name(r['bound_staff']) if r.get('bound_staff') else None,

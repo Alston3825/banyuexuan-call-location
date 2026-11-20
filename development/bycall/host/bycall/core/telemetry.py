@@ -28,6 +28,7 @@ class Telemetry:
             for name, type_ in [('systolic', 'INTEGER'), ('diastolic', 'INTEGER'), ('measured_at', 'TEXT')]:
                 if name not in columns:
                     db.execute(f'ALTER TABLE vitals ADD COLUMN {name} {type_}')
+            db.execute('CREATE INDEX IF NOT EXISTS vitals_by_device ON vitals(staff,watch,id DESC)')
             db.commit()
 
     def _run(self, sql, args=()):
