@@ -1,3 +1,5 @@
+> 当前新增工作为数字孪生定位基础和60表大屏，源码版本20261120-station60-twin-dev，尚未再次发布；现场此前已发布20261120-terminal-admin。先读docs/17与docs/18及根目录最新任务记录。
+
 # 最新版开发副本
 
 此目录从用户提供的 `/Users/alston/Desktop/bycall` 建立（2026-11-20，America/Los_Angeles），用于“统一后台设置与终端推送”开发。

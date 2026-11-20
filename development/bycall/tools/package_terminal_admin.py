@@ -10,7 +10,10 @@ import zipfile
 root = Path(__file__).resolve().parents[1]
 ap = argparse.ArgumentParser()
 ap.add_argument('--out', required=True)
+ap.add_argument('--name-prefix', default='bycall-terminal-admin')
 a = ap.parse_args()
+if not a.name_prefix.replace('-', '').replace('_', '').isalnum():
+    raise SystemExit('包名前缀无效')
 out = Path(a.out).resolve()
 out.mkdir(parents=True, exist_ok=True)
 skip = {'build', '.gradle', '.git', '__pycache__', 'models', 'data', 'auth', 'config', 'dist', 'node_modules'}
@@ -26,7 +29,7 @@ for p in sorted(root.rglob('*')):
         continue
     if rel.as_posix() in explicit or (p.suffix in allowed_suffixes and not p.name.startswith('.') and p.name != 'local.properties'):
         files.append(p)
-with zipfile.ZipFile(out / 'bycall-terminal-admin-source.zip', 'w', zipfile.ZIP_DEFLATED) as z:
+with zipfile.ZipFile(out / (a.name_prefix + '-source.zip'), 'w', zipfile.ZIP_DEFLATED) as z:
     for p in files:
         z.write(p, 'bycall/' + str(p.relative_to(root)))
 with tarfile.open(out / 'host-update.tar.gz', 'w:gz') as tf:
