@@ -22,6 +22,12 @@ class Telemetry:
             """)
             if 'charging' not in [r[1] for r in db.execute('PRAGMA table_info(device_status)')]:
                 db.execute('ALTER TABLE device_status ADD COLUMN charging INTEGER')    # 老库升级
+            if 'offline_since' not in {r[1] for r in db.execute('PRAGMA table_info(device_status)')}:
+                db.execute('ALTER TABLE device_status ADD COLUMN offline_since TEXT')
+            columns = {r[1] for r in db.execute('PRAGMA table_info(vitals)')}
+            for name, type_ in [('systolic', 'INTEGER'), ('diastolic', 'INTEGER'), ('measured_at', 'TEXT')]:
+                if name not in columns:
+                    db.execute(f'ALTER TABLE vitals ADD COLUMN {name} {type_}')
             db.commit()
 
     def _run(self, sql, args=()):
@@ -35,12 +41,14 @@ class Telemetry:
         c = None if charging is None else int(bool(charging))
         self._run('INSERT INTO device_status(device,online,battery,wifi_rssi,last_seen,charging) VALUES(?,1,?,?,?,?) '
                   'ON CONFLICT(device) DO UPDATE SET online=1,battery=excluded.battery,'
-                  'wifi_rssi=excluded.wifi_rssi,last_seen=excluded.last_seen,charging=excluded.charging',
+                  'wifi_rssi=excluded.wifi_rssi,last_seen=excluded.last_seen,charging=excluded.charging,offline_since=NULL',
                   (device, battery, wifi_rssi, at, c))
 
     def set_online(self, device, online, at):
-        self._run('INSERT INTO device_status(device,online,last_seen) VALUES(?,?,?) '
-                  'ON CONFLICT(device) DO UPDATE SET online=excluded.online', (device, int(online), at))
+        self._run('INSERT INTO device_status(device,online,last_seen,offline_since) VALUES(?,?,?,?) '
+                  'ON CONFLICT(device) DO UPDATE SET online=excluded.online,offline_since=CASE '
+                  'WHEN excluded.online=1 THEN NULL WHEN device_status.online=1 THEN excluded.last_seen '
+                  'ELSE device_status.offline_since END', (device, int(online), at, None if online else at))
 
     def devices(self):
         return self._run('SELECT * FROM device_status ORDER BY device')
@@ -59,12 +67,18 @@ class Telemetry:
                          'GROUP BY watch) x ON l.id=x.m ORDER BY l.watch')
 
     def add_vitals(self, staff, watch, at, v):
-        self._run('INSERT INTO vitals(staff,watch,at,heart_rate,spo2,temperature,steps) '
-                  'VALUES(?,?,?,?,?,?,?)', (staff, watch, at, v.get('heart_rate'), v.get('spo2'),
-                                            v.get('temperature'), v.get('steps')))
+        self._run('INSERT INTO vitals(staff,watch,at,heart_rate,spo2,temperature,steps,systolic,diastolic,measured_at) '
+                  'VALUES(?,?,?,?,?,?,?,?,?,?)', (staff, watch, at, v.get('heart_rate'), v.get('spo2'),
+                                            v.get('temperature'), v.get('steps'), v.get('systolic'), v.get('diastolic'), v.get('measured_at')))
 
     def vitals(self, staff, limit=100):
         return self._run('SELECT * FROM vitals WHERE staff=? ORDER BY id DESC LIMIT ?', (staff, limit))
+
+    def latest_vital_sample(self, staff, watch, kind, since):
+        column = {'heart_rate': 'heart_rate', 'blood_pressure': 'systolic'}[kind]
+        rows = self._run(f'SELECT * FROM vitals WHERE staff=? AND watch=? AND at>=? AND {column} IS NOT NULL ORDER BY id DESC LIMIT 1',
+                         (staff, watch, since or ''))
+        return rows[0] if rows else None
 
     def stale_online(self, before_iso):
         return [r['device'] for r in self._run(

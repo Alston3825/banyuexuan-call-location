@@ -31,7 +31,7 @@ class BeaconsTest {
         window.add(Beacons.Reading("16-1", -60, 950))
         now = 1100
         val reading = window.drain(500).single()
-        assertEquals(-55, reading.rssi); assertEquals(2, reading.sampleCount); assertEquals(150, reading.ageMs)
+        assertEquals(-55, reading.rssi); assertEquals(2, reading.sampleCount); assertEquals(150L, reading.ageMs)
         assertTrue(window.drain().isEmpty())
     }
     @Test fun staleAndFutureCallbackSamplesAreExcludedFromMean() {

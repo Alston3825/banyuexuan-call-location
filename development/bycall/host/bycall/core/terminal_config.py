@@ -52,7 +52,7 @@ SCHEMAS = {
         'sound_enabled': field('启用声音提醒（首次仍需点击页面授权）', 'bool', True),
         'recent_minutes': field('显示最近已结束呼叫（分钟）', 'int', 15, 1, 120),
         'late_seconds': field('未接单标红时间（秒）', 'int', 30, 5, 300),
-        'watch_slots': field('手表显示位置（至少40）', 'int', 40, 40, 120),
+        'watch_slots': field('手表显示位置（至少60）', 'int', 60, 60, 120),
         'scale_percent': field('界面字号比例（%）', 'int', 100, 80, 140),
     },
 }

@@ -243,13 +243,14 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
         for sid, info in cfg.staff.items():
             w = svc.watch_of(sid)                     # 当前戴的表(换表后是备用表)
             d, l = dev.get(w, {}), loc.get(w, {})
-            hr = svc.tele.vitals(sid, 1)
+            reg = svc.watches.get(w) if w else None
+            vital = svc.watch_vitals(reg, bool(d.get('online'))) if reg else {}
             nurses.append(dict(staff=sid, name=info.get('name', sid), watch=w,
                                online=bool(d.get('online')), battery=d.get('battery'),
                                last_seen=d.get('last_seen'), status=svc.roster.state(sid),
                                area=l.get('area'), location_room=l.get('room'), located_at=l.get('at'),
                                location_status=l.get('location_status', 'unknown'), location_reason=l.get('location_reason'),
-                               heart_rate=hr[0]['heart_rate'] if hr else None,
+                               heart_rate=vital.get('heart_rate'), blood_pressure=vital.get('blood_pressure'),
                                active=[dict(call_id=i, room=r, state=s) for i, r, s in svc._active_calls(sid)]))
         rooms = [dict(room=r, floor=v.get('floor'), room_no=v.get('room_no'),
                       guest_buttons=[g['label'] for g in svc.guest_buttons(r)], tablet=v.get('tablet'),

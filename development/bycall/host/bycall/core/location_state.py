@@ -29,8 +29,10 @@ class LocationReports:
         return out
 
     def record(self, watch, staff, binding, fix, diagnostics, at):
-        previous = self.rows().get(watch, {})
-        last = previous.get('last_known') if previous.get('staff') == staff and previous.get('binding') == binding else None
+        with closing(sqlite3.connect(self.path)) as db:
+            row = db.execute('SELECT staff,binding,last_known FROM location_current WHERE store=? AND watch=?',
+                             (self.store, watch)).fetchone()
+        last = json.loads(row[2]) if row and row[0] == staff and row[1] == binding and row[2] else None
         if fix:
             last = dict(fix, at=at, staff=staff)
         with closing(sqlite3.connect(self.path, timeout=10)) as db:
@@ -52,6 +54,8 @@ class LocationReports:
         ttl = max(30, min(180, int(diag.get('report_interval_s') or 10) * 3))
         try:
             age = (now - datetime.fromisoformat(row['received_at'])).total_seconds()
+            if row.get('fix'):
+                age += (diag.get('fix_age_ms') or 0) / 1000
         except (ValueError, TypeError):
             age = float('inf')
         base.update(received_at=row['received_at'], age_seconds=round(max(0, age), 1) if age != float('inf') else None,

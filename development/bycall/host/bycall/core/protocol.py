@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # message types
 CALL_REQUEST = 'CALL_REQUEST'      # room -> host
@@ -88,7 +88,19 @@ class VitalsPayload(BaseModel):
     spo2: Optional[int] = Field(default=None, ge=50, le=100)
     temperature: Optional[float] = Field(default=None, ge=30, le=45)
     steps: Optional[int] = Field(default=None, ge=0)
-    measured_at: Optional[str] = None
+    systolic: Optional[int] = Field(default=None, ge=50, le=260)
+    diastolic: Optional[int] = Field(default=None, ge=30, le=160)
+    measured_at: Optional[datetime] = None
+
+    @model_validator(mode='after')
+    def check_pressure(self):
+        if (self.systolic is None) != (self.diastolic is None):
+            raise ValueError('blood pressure requires systolic and diastolic')
+        if self.systolic is not None and self.systolic <= self.diastolic:
+            raise ValueError('systolic must exceed diastolic')
+        if self.measured_at is not None and self.measured_at.tzinfo is None:
+            raise ValueError('measured_at requires timezone')
+        return self
 
 
 class RequestPayload(BaseModel):

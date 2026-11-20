@@ -78,15 +78,26 @@ section h2 b{color:var(--text);font-size:22px}
 button.pri{background:#4c9aff;border-color:#4c9aff;color:#06101c;font-weight:700}
 @media (max-width:900px){main{grid-template-columns:1fr;overflow:auto}body{overflow:auto;height:auto}}
 
-main{grid-template-columns:minmax(0,1fr) 520px}
-.right{grid-template-rows:minmax(0,2fr) minmax(0,1fr)}
-.right>section:last-child{grid-row:1}.right>section:first-child{grid-row:2}
-#watches{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));grid-auto-rows:minmax(32px,1fr);gap:4px;align-content:start}
-.wrow{display:flex;flex-direction:column;align-items:stretch;gap:2px;padding:4px;border:1px solid var(--line);border-radius:4px;min-width:0;font-size:10px}
-.wrow>div:first-child{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.wrow>div:last-child{display:flex;justify-content:space-between;gap:2px}
-.wrow .wst,.wrow .bat{font-size:11px}.wrow.vacant{color:var(--mute);min-height:32px;justify-content:center;text-align:center;opacity:.45}
-@media(max-width:1000px){main{grid-template-columns:1fr}.right{min-height:600px}}
+/* 60-card workstation: 6 × 10 at 1920×1080; smaller displays retain readable cards and scroll. */
+main{grid-template-columns:minmax(350px,34fr) minmax(0,66fr);gap:12px;padding:12px}
+.right{display:flex;min-width:0}.right>section{flex:1;min-width:0}
+section.watch-panel h2{padding:10px 14px;flex-wrap:wrap;gap:10px}
+.watch-summary{font-size:12px;color:var(--mute);font-weight:400}
+#watches{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));grid-template-rows:repeat(var(--watch-rows,10),minmax(80px,1fr));gap:6px;flex:1;padding:8px;align-content:stretch}
+.watch-tile{min-width:0;min-height:80px;padding:6px 8px;border:1px solid #2f4557;border-radius:7px;background:#142631;display:grid;grid-template-rows:18px 15px 18px 17px;align-content:center;gap:1px;font-size:12px;overflow:hidden}
+.watch-tile.offline{background:#261f2a;border-color:#653542}.watch-tile.fault{border-color:var(--warn)}
+.watch-head,.watch-status,.watch-metrics{display:flex;align-items:center;justify-content:space-between;gap:5px;min-width:0}
+.watch-sn{font-weight:700;font-size:13px;font-variant-numeric:tabular-nums;flex-shrink:0;color:#a8cbeb}
+.watch-name{font-size:14px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wst{font-size:11px;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.watch-tile .bat{font-size:10px;color:var(--mute);white-space:nowrap}.watch-tile .wst.off{color:#ff8791}
+.watch-metrics{font-variant-numeric:tabular-nums;font-size:11px;gap:3px}.watch-metrics .metric{white-space:nowrap}.metric strong{font-weight:600;font-size:13px;color:#e4f5f4}.metric small{font-size:9px;color:var(--mute)}
+.watch-location{display:flex;align-items:center;gap:4px;min-width:0;color:#c4d8e6;font-size:12px}.watch-location .value{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.watch-location .label{color:var(--mute);font-size:10px;flex-shrink:0}
+.watch-tile.vacant{background:#14202b;border-color:#263444;color:#60798c;opacity:.7}.vacant .watch-name{font-size:12px;font-weight:400}.vacant .watch-location,.vacant .watch-sn{color:#60798c}
+.watch-footnote{padding:5px 10px;border-top:1px solid var(--line);font-size:11px;color:var(--mute)}
+.left .card{grid-template-columns:80px minmax(0,1fr) auto;gap:8px;padding:10px}.left .card .room{font-size:30px}.left .card .what{font-size:19px}.left .card .timer{font-size:24px}
+@media(max-width:1500px){#watches{grid-template-columns:repeat(5,minmax(0,1fr));grid-template-rows:repeat(var(--watch-rows-small,12),minmax(80px,1fr))}.watch-head{gap:3px}.watch-sn{font-size:11px}.watch-name{font-size:12px}.watch-metrics{font-size:10px}.metric strong{font-size:12px}.left .card{grid-template-columns:1fr auto}.left .card .room{grid-column:1/-1}}
+@media(max-width:1050px){main{grid-template-columns:1fr;overflow:visible}body{height:auto;overflow:auto}.right{min-height:1000px}.left{min-height:500px}header{flex-wrap:wrap}#watches{grid-template-columns:repeat(4,minmax(0,1fr))}}
 </style>
 </head>
 <body>
@@ -107,17 +118,13 @@ main{grid-template-columns:minmax(0,1fr) 520px}
 <main>
   <div class="left">
     <section><h2>进行中的呼叫 <b id="n-active">0</b></h2><div class="body" id="active"></div></section>
-    <section><h2>最近已结束</h2><div class="body" id="recent"></div></section>
+    <section><h2>最近已结束</h2><div class="body" id="recent"></div><div class="rooms" id="rooms"></div></section>
   </div>
   <div class="right">
-    <section>
-      <h2>护理师 <b id="n-nurse">0</b></h2>
-      <div class="body" id="nurses"></div>
-      <div class="rooms" id="rooms"></div>
-    </section>
-    <section>
-      <h2>手表在线状态 <b id="n-watch">0</b><span class="sp" style="flex:1"></span><button id="swapbtn" title="护士站换表/回绑">⌚ 换表</button></h2>
+    <section class="watch-panel">
+      <h2>手表与护理师 <b id="n-watch">—</b><span class="watch-summary" id="slot-count">60 个位置</span><span class="sp" style="flex:1"></span><button id="swapbtn" title="护士站换表/回绑">⌚ 换表</button></h2>
       <div class="body" id="watches"></div>
+      <div class="watch-footnote">体征为最近一次真实采样；心率目前每5分钟采一次。血压无真实上报则显示“未提供”。位置过期不沿用旧值。</div>
     </section>
   </div>
 </main>
@@ -177,10 +184,10 @@ function askKey() {
 // A browser installation has its own stable id; screens never share an acknowledgement.
 let stationId;
 try { stationId=localStorage.getItem('bycall_station_id'); if(!stationId){stationId='station-'+(crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2));localStorage.setItem('bycall_station_id',stationId)} } catch(e) { stationId='station-session-'+Math.random().toString(36).slice(2); }
-let stationRevision=-1, stationSettings={title:'护士站',sound_enabled:true,recent_minutes:15,late_seconds:30,watch_slots:40,scale_percent:100};
+let stationRevision=-1, stationSettings={title:'护士站',sound_enabled:true,recent_minutes:15,late_seconds:30,watch_slots:60,scale_percent:100};
 $('terminal-admin').onclick=()=>window.open('/admin/terminals','_blank');
 function applyStationSettings(s){
-  stationSettings={...stationSettings,...s}; LATE_SECONDS=stationSettings.late_seconds;
+  stationSettings={...stationSettings,...s}; stationSettings.watch_slots=Math.max(60,Number(stationSettings.watch_slots)||60); LATE_SECONDS=stationSettings.late_seconds;
   $('station-title').textContent=stationSettings.title;
   document.body.style.zoom=stationSettings.scale_percent/100;
   if(!stationSettings.sound_enabled) soundOn=false;
@@ -367,6 +374,7 @@ function tick() {
   });
   $('err').style.display = (Date.now() - lastOk > 8000 && lastOk) ? 'block' : 'none';
   document.querySelectorAll('#watches .wst').forEach(updateWatchState);
+  document.querySelectorAll('#watches .watch-tile[data-sn]').forEach(updateWatchMeasurements);
 }
 // ---- 手表在线状态:在线 / 已离线多少秒(每秒刷新,不用等下一次拉取) ----
 const SLOW_S = 45;                 // 心跳 30 秒一次;超过 45 秒没心跳先标黄
@@ -378,7 +386,8 @@ function fmtAgo(s) {
   return Math.floor(s / 86400) + '天';
 }
 function updateWatchState(x) {
-  const last = x.dataset.last ? Date.parse(x.dataset.last) : 0, ago = last ? (now() - last) / 1000 : null;
+  const last = x.dataset.last ? Date.parse(x.dataset.last) : 0, since = x.dataset.offlineSince ? Date.parse(x.dataset.offlineSince) : last;
+  const ago = (x.dataset.online === '1' ? last : since) ? (now() - (x.dataset.online === '1' ? last : since)) / 1000 : null;
   if (x.dataset.online === '1') {
     const slow = ago != null && ago > SLOW_S;
     x.className = 'wst ' + (slow ? 'slow' : 'on');
@@ -388,27 +397,48 @@ function updateWatchState(x) {
     x.textContent = ago == null ? '从未上线' : '离线 ' + fmtAgo(ago);
   }
 }
+function updateWatchMeasurements(card) {
+  const current = now();
+  for (const kind of ['heart','pressure']) {
+    const span=card.querySelector('[data-metric="'+kind+'"]'), at=Date.parse(span.dataset.at||'');
+    const age=(current-at)/1000, fresh=span.dataset.state==='fresh'&&Number.isFinite(age)&&age>=-30&&age<=600;
+    span.textContent=fresh?span.dataset.value:(span.dataset.state==='no_data'?'未提供':'—');
+    span.title=fresh?'真实采样 '+new Date(at).toLocaleTimeString('zh-CN'):(span.dataset.state==='no_data'?'没有收到真实测量数据':'采样过期或设备离线');
+  }
+  const location=card.querySelector('.watch-location .value');
+  const expired=location.dataset.state==='fresh'&&current-Date.parse(location.dataset.at||'')>Number(location.dataset.ttl)*1000;
+  location.textContent=expired?'位置已过期':location.dataset.label;
+}
 function renderWatches(list) {
-  const box = $('watches'); box.replaceChildren();
-  // 在岗但离线的排最前(最要紧),其次在岗在线,最后是备用池/待充电/故障
-  const rank = w => (w.bound_staff ? 0 : 2) + (w.online ? 1 : 0);
-  list.slice().sort((a, b) => rank(a) - rank(b) || a.sn.localeCompare(b.sn, 'zh', {numeric: true})).forEach(w => {
-    const r = el('div', 'wrow'), l = el('div');
-    const head = el('div'); head.append(el('span', 'dot ' + (w.online ? 'on' : 'off')), el('span', 'sn', w.sn));
-    head.appendChild(document.createTextNode(w.bound_name ? w.bound_name + (w.spare ? '(备用表)' : '') : (w.spare ? '备用 · ' : '') + (w.status_text || '')));
-    if (w.unreachable) head.appendChild(el('span', 'tag bad', '收不到派单'));
-    if (w.status === 'FAULT') head.appendChild(el('span', 'tag bad', '故障'));
-    l.appendChild(head);
-    const right = el('div'), st = el('div', 'wst'); st.dataset.last = w.last_seen || ''; st.dataset.online = w.online ? '1' : '0';
-    updateWatchState(st); right.appendChild(st);
-    const bat = el('div', 'bat', w.battery != null ? (w.charging ? '⚡' : '🔋') + w.battery + '%' : '');
-    if (w.battery != null && w.battery < 20 && !w.charging) bat.style.color = 'var(--bad)';
-    right.appendChild(bat);
-    r.append(l, right); box.appendChild(r);
+  const box=$('watches'); box.replaceChildren();
+  const slots=Math.max(60,stationSettings.watch_slots,list.length);
+  box.style.setProperty('--watch-rows',Math.ceil(slots/6));
+  box.style.setProperty('--watch-rows-small',Math.ceil(slots/5));
+  list.slice().sort((a,b)=>a.sn.localeCompare(b.sn,'zh',{numeric:true})).forEach(w=>{
+    const card=el('div','watch-tile'+(!w.online?' offline':'')+(w.status==='FAULT'?' fault':''));
+    card.dataset.sn=w.sn;if(w.bound_staff){card.dataset.staff=w.bound_staff;card.classList.add('dbl')}
+    const head=el('div','watch-head'),name=el('span','watch-name',w.bound_name||(w.spare?'备用表':'待分配'));
+    name.title=w.bound_name||w.status_text||'';head.append(el('span','watch-sn',w.sn),name);
+    const status=el('div','watch-status'),st=el('span','wst');
+    st.dataset.last=w.last_seen||'';st.dataset.offlineSince=w.offline_since||'';st.dataset.online=w.online?'1':'0';updateWatchState(st);
+    st.title=(w.last_seen?'最后心跳 '+new Date(w.last_seen).toLocaleString('zh-CN'):'尚无在线记录')+(w.unreachable?' · 收不到派单':'')+(w.status_text?' · '+w.status_text:'');
+    const battery=el('span','bat',w.battery==null?'':(w.charging?'⚡':'电量 ')+w.battery+'%');status.append(st,battery);
+    const metrics=el('div','watch-metrics');
+    const metric=(key,label,value,state,at)=>{const wrap=el('span','metric');wrap.append(el('small',null,label+' '));const v=el('strong');v.dataset.metric=key;v.dataset.value=value;v.dataset.state=state||'no_data';v.dataset.at=at||'';wrap.append(v);return wrap};
+    metrics.append(metric('heart','心率',w.heart_rate==null?'':String(w.heart_rate),w.heart_rate_state,w.heart_rate_at),metric('pressure','血压',w.blood_pressure?w.blood_pressure.systolic+'/'+w.blood_pressure.diastolic:'',w.blood_pressure_state,w.blood_pressure_at));
+    const loc=el('div','watch-location'),value=el('span','value');
+    const label=w.location_status==='fresh'?(w.location_area||w.location_room||'已定位'):w.location_status==='stale'?'位置已过期':w.location_reason==='scan_error'?'扫描异常':w.location_reason==='unbound'?'未佩戴':w.location_reason==='simulated'?'测试观测':'位置未知';
+    value.dataset.state=w.location_status||'unknown';value.dataset.label=label;value.dataset.at=w.located_at||'';value.dataset.ttl=w.location_ttl_seconds||30;
+    value.title=label+(w.located_at?' · '+new Date(w.located_at).toLocaleTimeString('zh-CN'):'');loc.append(el('span','label','位置'),value);
+    card.append(head,status,metrics,loc);box.append(card);updateWatchMeasurements(card);
   });
-  for (let i=list.length; i<Math.max(40, stationSettings.watch_slots); i++) box.appendChild(el('div', 'wrow vacant', '待登记'));
-  const inUse = list.filter(w => w.bound_staff);
-  $('n-watch').textContent = inUse.filter(w => w.online).length + '/' + inUse.length + ' 在岗在线';
+  for(let i=list.length;i<slots;i++){
+    const card=el('div','watch-tile vacant');card.setAttribute('aria-label','待登记位置 '+(i+1));
+    const head=el('div','watch-head');head.append(el('span','watch-sn','位置 '+String(i+1).padStart(2,'0')),el('span','watch-name','待登记'));
+    card.append(head,el('div','wst','等待设备登记'),el('div','watch-metrics','心率 —　血压 —'),el('div','watch-location','位置 —'));box.append(card);
+  }
+  $('n-watch').textContent=list.filter(w=>w.online).length+'/'+list.length+' 在线';
+  $('slot-count').textContent=slots+' 个位置 · 在岗 '+list.filter(w=>w.bound_staff).length+' 人';
 }
 $('swapbtn').onclick = () => window.open('/swap', '_blank');
 function render(s) {
@@ -435,24 +465,6 @@ function render(s) {
     r.append(l, el('div', 't', dur)); rc.appendChild(r);
   });
   if (!s.recent.length) rc.appendChild(el('div', 'empty', '暂无记录'));
-
-  const nu = $('nurses'); nu.replaceChildren();
-  const order = n => (n.online ? 0 : 1) * 2 + (n.active.length ? 0 : 1);
-  s.nurses.slice().sort((a, b) => order(a) - order(b) || a.name.localeCompare(b.name)).forEach(n => {
-    const r = el('div', 'row dbl'); r.dataset.staff = n.staff; r.title = '双击查看该护理师的呼叫记录'; const l = el('div');
-    const h = el('div'); const dot = el('span', 'dot ' + (!n.online ? 'off' : n.active.length ? 'busy' : 'on'));
-    h.append(dot, n.name);
-    if (!n.online) h.appendChild(el('span', 'tag bad', '离线'));
-    else if (n.active.length) h.appendChild(el('span', 'tag', '处理 ' + n.active.map(a => a.room).join('、')));
-    else h.appendChild(el('span', 'tag', '空闲'));
-    l.appendChild(h);
-    const loc = n.online ? (n.location_status === 'stale' ? '定位已过期' : (n.area || '位置未知')) : ('最后在线 ' + (hhmm(n.last_seen) || '—'));
-    l.appendChild(el('div', 't', loc + (n.heart_rate ? ' · ♥ ' + n.heart_rate : '')));
-    const bat = el('div', 't', n.battery != null ? '🔋' + n.battery + '%' : '');
-    if (n.battery != null && n.battery < 20) bat.style.color = 'var(--bad)';
-    r.append(l, bat); nu.appendChild(r);
-  });
-  $('n-nurse').textContent = s.nurses.filter(n => n.online).length + '/' + s.nurses.length;
 
   renderWatches(s.watches || []);
   const rm = $('rooms'); rm.replaceChildren();
@@ -541,7 +553,7 @@ $('n-close').onclick = () => $('ndlg').close();
 $('ndlg').addEventListener('close', () => { dlgStaff = null; });
 $('ndlg').ondblclick = e => { const r = e.target.closest('[data-call-id]'); if (r) openCall(r.dataset.callId); };
 $('recent').ondblclick = e => { const r = e.target.closest('[data-call-id]'); if (r) openCall(r.dataset.callId); };
-$('nurses').ondblclick = e => { const r = e.target.closest('[data-staff]'); if (r) openStaff(r.dataset.staff); };
+$('watches').ondblclick = e => { const r = e.target.closest('[data-staff]'); if (r) openStaff(r.dataset.staff); };
 setInterval(poll, 2000); setInterval(tick, 1000);
 function fillGuest() {
   const r = (snap && snap.rooms || []).find(x => x.room === $('g-room').value);

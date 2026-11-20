@@ -114,7 +114,7 @@ class TestTerminalConfig(Base):
         a = self.client.get('/terminal-config/station/station-test', headers=self.h)
         self.assertEqual(a.status_code, 200)
         self.assertEqual(self.client.get('/terminal-config/station/bad', headers=self.h).status_code, 400)
-        r = self.save(dict(watch_slots=48, title='试点大屏'), targets=['station-test'], expected={'station-test': 0}, kind='station')
+        r = self.save(dict(watch_slots=72, title='试点大屏'), targets=['station-test'], expected={'station-test': 0}, kind='station')
         rev = r.json()['revision']
         self.assertEqual(self.client.post('/terminal-config/station/station-test/ack', headers=self.h, json=dict(revision=rev,status='applied')).status_code, 200)
         self.assertEqual(self.client.post('/terminal-config/station/station-other/ack', headers=self.h, json=dict(revision=rev,status='applied')).status_code, 409)
@@ -123,7 +123,7 @@ class TestTerminalConfig(Base):
             time.sleep(.1)
             self.save(dict(late_seconds=40), targets=['station-test'], expected={'station-test': rev}, kind='station')
             self.assertGreater(future.result(timeout=3).json()['revision'], rev)
-        self.assertEqual(self.save(dict(watch_slots=39),targets=['station-test'],expected={'station-test':rev+1},kind='station').status_code,400)
+        self.assertEqual(self.save(dict(watch_slots=59),targets=['station-test'],expected={'station-test':rev+1},kind='station').status_code,400)
 
     def test_beacon_map_persistence_validation_and_live_locator(self):
         body = dict(expected=0, items=[dict(major=16, minor=1601, room='1601', area='试点房')])

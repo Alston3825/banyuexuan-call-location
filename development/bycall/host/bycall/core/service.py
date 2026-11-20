@@ -795,7 +795,7 @@ class HostService:
         d = self._device(sn)
         return dict(sn=sn, status=r.get('status'), status_text=STATUS_TEXT.get(r.get('status'), r.get('status')),
                     battery=d.get('battery'), charging=bool(d.get('charging')), online=self._fresh_online(sn),
-                    last_seen=d.get('last_seen'), wifi_rssi=d.get('wifi_rssi'), spare=bool(r.get('spare')),
+                    last_seen=d.get('last_seen'), offline_since=d.get('offline_since'), wifi_rssi=d.get('wifi_rssi'), spare=bool(r.get('spare')),
                     bound_staff=r.get('bound_staff'),
                     bound_name=self.cfg.name(r['bound_staff']) if r.get('bound_staff') else None,
                     home_staff=r.get('home_staff'),
@@ -988,12 +988,43 @@ class HostService:
             self.bus.publish(P.t_reply(self.cfg.store_id, dev),
                              self._msg(P.CMD_REJECTED, dict(reason='return_failed', ref=env.msg_id, type=env.type, text=str(e))))
 
+    def watch_vitals(self, reg, online):
+        out = dict(heart_rate=None, heart_rate_at=None, heart_rate_state='no_data',
+                   blood_pressure=None, blood_pressure_at=None, blood_pressure_state='no_data', vitals_ttl_seconds=600)
+        staff, watch = reg.get('bound_staff'), reg['sn']
+        if not staff:
+            return out
+        for kind in ('heart_rate', 'blood_pressure'):
+            sample = self.tele.latest_vital_sample(staff, watch, kind, reg.get('last_bind_time'))
+            if not sample:
+                continue
+            observed = sample.get('measured_at') or sample['at']
+            try:
+                sample_age = (self._now() - datetime.fromisoformat(observed)).total_seconds()
+                receipt_age = (self._now() - datetime.fromisoformat(sample['at'])).total_seconds()
+                fresh = -30 <= sample_age <= 600 and -30 <= receipt_age <= 600
+            except (ValueError, TypeError):
+                fresh = False
+            state = 'offline' if not online else 'fresh' if fresh else 'stale'
+            out[kind + '_at'], out[kind + '_state'] = observed, state
+            if state == 'fresh':
+                out[kind] = sample['heart_rate'] if kind == 'heart_rate' else dict(systolic=sample['systolic'], diastolic=sample['diastolic'])
+        return out
+
     def watch_board(self):
-        """大屏“手表在线状态”:所有登记的手表(在岗的、备用池、待充电、故障)。"""
+        """Merged station cards: registered equipment, current wearer, fresh location and actual vitals."""
+        locations = {v['watch']: v for v in self.location_views()}
         out = []
         for r in self.watches.all():
             b = self._watch_brief(r['sn'])
+            loc = locations.get(r['sn'], {})
+            b['online'] = bool(loc.get('online'))
             b['unreachable'] = bool(r.get('bound_staff') and r['bound_staff'] in self.unreachable)
+            b.update({key: loc.get(key) for key in ('location_status', 'location_reason', 'scan_status')})
+            b.update(location_area=loc.get('area'), location_room=loc.get('room'), location_floor=loc.get('floor'),
+                     located_at=loc.get('at'), location_ttl_seconds=loc.get('stale_after_seconds', 30))
+            b.update(self.watch_vitals(r, b['online']))
+            b['active'] = [dict(call_id=i, room=room, state=state) for i, room, state in self._active_calls(r['bound_staff'])] if r.get('bound_staff') else []
             out.append(b)
         return out
 
@@ -1157,6 +1188,7 @@ class HostService:
             reason = 'below_threshold' if not fix else None
         diag = p.model_dump(mode='json')
         diag['reason'], diag['report_interval_s'] = reason, interval
+        diag['fix_age_ms'] = next((r.get('age_ms') or 0 for r in readings if fix and r['beacon_id'] == fix['beacon']), 0)
         self.location_reports.record(env.device_id, staff, self.watches.get(env.device_id).get('last_bind_time'),
                                      fix, diag, self._now().isoformat())
         if staff:
@@ -1170,8 +1202,7 @@ class HostService:
         staff = self._staff_or_reject(env)
         if staff:
             v = P.VitalsPayload(**env.payload)
-            self.tele.add_vitals(staff, env.device_id, v.measured_at or self._now().isoformat(),
-                                 v.model_dump())
+            self.tele.add_vitals(staff, env.device_id, self._now().isoformat(), v.model_dump(mode='json'))
 
     # ---- 测试报表 ------------------------------------------------------
     def test_report(self, hours=12):
