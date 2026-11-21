@@ -8,7 +8,7 @@ ENV=os.environ.copy()
 for k in list(ENV):
  if k.lower() in ['http_proxy','https_proxy','all_proxy']:ENV.pop(k)
 ENV['GIT_TERMINAL_PROMPT']='0';ENV['GIT_SSH_COMMAND']='/usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=3'
-SKIP={'node_modules','.git','.venv','venv','build','dist','tmp','__pycache__','.gradle','.pytest_cache','.claude','.cache','backups','发出文件'}
+SKIP={'node_modules','.git','.venv','venv','build','dist','tmp','__pycache__','.gradle','.pytest_cache','.claude','.cache','backups','发出文件','local-private','.codex','.agents'}
 EXT={'.pem','.key','.db','.sqlite','.sqlite3','.log','.jks','.keystore','.apk','.aab','.bin','.dmg','.exe','.so','.dylib','.zip','.gz','.tar','.enc','.part','.bak','.blend1'}
 TOKENS=[re.compile(x.encode()) for x in [r'-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----',r'gh[pousr]_[A-Za-z0-9]{30,}',r'github_pat_[A-Za-z0-9_]{30,}',r'AKIA[A-Z0-9]{16}',r'sk-[A-Za-z0-9_-]{25,}',r'AIza[A-Za-z0-9_-]{30,}']]
 def log(s):print(datetime.datetime.now().astimezone().isoformat(timespec='seconds')+' '+s,flush=True)
@@ -23,7 +23,7 @@ def excluded(p,rel):
 # 仅排除明确的运行数据目录，不能把auth/models/data等业务源码目录按名字全局排除。
 RUNTIME_DIRS={('host','config'),('host','upgrade-backups'),('host','data'),('host','models'),('host','mosquitto','auth'),('apps','api','storage'),('uploads',)}
 REQUIRED={
- 'digital':['高新店24F整层_第三版_1108/网页实时3D/index.html','高新店24F整层_第三版_1108/网页实时3D/arch.b64.txt'],
+ 'digital':['高新店24F整层_第三版_1108/网页实时3D/index.html','高新店24F整层_第三版_1108/网页实时3D/arch.b64.txt','备份与交接/交接说明.md','备份与交接/备份计划.md','tools/backup_checkpoint.py','tools/verify_backup.py'],
  'call':['development/bycall/host/bycall/core/service.py','development/bycall/integration/twin-location-state.mjs','备份与交接/交接说明.md','host/bycall/core/service.py','android/tablet/src/main/AndroidManifest.xml','android/watch/src/main/AndroidManifest.xml'],
  'ai':['package.json','apps/api/src/auth/auth.controller.ts','apps/api/src/auth/auth.module.ts','apps/web/src/main.ts'],
  'tomato':['go.mod','main.go','api.go']}
@@ -38,7 +38,7 @@ def snapshot(pr):
  # 由本任务创建的镜像仓库只接收快照；不重写原仓库/生产分支。
  files={};removed=[]
  for root,ds,ns in os.walk(src,onerror=lambda e: (_ for _ in ()).throw(e)):
-  ds[:]=[d for d in ds if not skip_directory(Path(root,d),Path(root,d).relative_to(src))]
+  ds[:]=[d for d in ds if not skip_directory(Path(root,d),Path(root,d).relative_to(src)) and not (pr['id']=='ai' and d in {'coverage','dev-dist'})]
   for n in ns:
    p=Path(root,n);rel=p.relative_to(src)
    if excluded(p,rel) or str(rel) in {'docs/自动接手快照.md','docs/源码文件校验清单.json'}:continue

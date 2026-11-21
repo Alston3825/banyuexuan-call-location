@@ -6,6 +6,29 @@ from zoneinfo import ZoneInfo
 ROOT = Path(__file__).resolve().parents[1]
 BASE = Path.home() / '.banyuexuan-project-sync'
 
+
+def mirror_to_solotank(sync, mirror, commit, now):
+    """可选第二远端：claude.ai 项目使用的 solotank/banyuexuan-call-location。
+    仅当镜像里存在名为 solotank 的 remote 时推送；非 force，失败不影响主备份的成功登记，
+    但会写入 call-solotank-status.json 并以退出码 3 让自动任务显示失败。"""
+    status = {'checked_at': now.isoformat(timespec='seconds'), 'remote': 'solotank'}
+    if 'solotank' not in sync.git(mirror, 'remote').split():
+        status['result'] = 'not_configured'
+    else:
+        try:
+            sync.git(mirror, 'push', 'solotank', commit + ':refs/heads/main')
+            # 补推所有检查点标签（含之前未成功推送的），已存在的不会被改写
+            sync.git(mirror, 'push', 'solotank', 'refs/tags/checkpoint/*:refs/tags/checkpoint/*')
+            remote = sync.git(mirror, 'ls-remote', 'solotank', 'refs/heads/main').split()[0]
+            status.update(result='ok' if remote == commit else 'mismatch', commit=remote)
+        except Exception as error:
+            status.update(result='failed', error=str(error)[-500:])
+    target = BASE / 'call-solotank-status.json'
+    temp = target.with_suffix('.part')
+    temp.write_text(json.dumps(status, ensure_ascii=False, indent=2))
+    os.replace(temp, target)
+    return status
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--prepare-only', action='store_true')
@@ -50,7 +73,10 @@ def main():
         temp = target.with_suffix('.part')
         temp.write_text(json.dumps(result, ensure_ascii=False, indent=2))
         os.replace(temp, target)
+        result['solotank'] = mirror_to_solotank(sync, mirror, result['commit'], now)
         print(json.dumps(result, ensure_ascii=False))
+        if result['solotank']['result'] not in ('ok', 'not_configured'):
+            raise SystemExit(3)
 
 if __name__ == '__main__':
     main()
