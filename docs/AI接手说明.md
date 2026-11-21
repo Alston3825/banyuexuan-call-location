@@ -79,3 +79,8 @@ Python/FastAPI + SQLite + MQTT；Android 平板和护士手表；核心实现位
 用户确认护士站采用文字主机屏+3D场景屏。最新版设计在development/bycall/docs/19-护士站文字与3D双屏同源设计.md。已实现共享location_snapshot，/station/snapshot.location_state与/integration/twin/locations共用同一投影，增加会话/版本/全量替换/有效期与断流约定；3D消费者参考在integration/twin-location-state.mjs，无密钥、无网络请求、不含实际场景。
 
 本地源码版本20261120-dual-screen-dev，现场仍以此前20261120-terminal-admin记录为准。本轮166项后端、9项Node适配器测试通过；没有修改Android，上一轮15项安卓测试及构建验证仍为原记录，不声称本轮又重新实测。真实3D页面地址、模型锚点、统一员工目录关联和第二屏实际运行验证仍待对应工程接入。程序设计不等于已部署双屏。
+
+
+## 2026-11-20 四次备份与持续交接
+
+新增 `备份与交接/交接说明.md` 统一接手入口与 `备份与交接/备份计划.md`。保留每5分钟安全源码同步，增加洛杉矶时间03/09/15/21点检查点与交接核对。仅私有源码资料备份，不执行生产发布或数据导出。运行状态以检查点脚本实际输出及远端SHA为准。
