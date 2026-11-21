@@ -1,6 +1,6 @@
 # 安卓端(房间平板 / 护士手表)
 
-工具:Android Studio 2026.2、Gradle 9.9.0、AGP 9.5.1、compileSdk 37、minSdk 26。三个模块:`common`(协议、MQTT、HTTP、设备配置)、`tablet`(房间平板)、`watch`(护士手表)。
+工具:Android Studio 2026.2、Gradle 9.9.0、AGP 9.5.1、compileSdk 37；平板/common minSdk 24（Android 7.0+），手表 minSdk 26（Android 8.0+）。三个模块:`common`(协议、MQTT、HTTP、设备配置)、`tablet`(房间平板)、`watch`(护士手表)。
 
 编译(命令行):
 ```sh

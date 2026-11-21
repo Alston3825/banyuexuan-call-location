@@ -7,10 +7,15 @@ android {
     compileSdk = 37
     defaultConfig {
         applicationId = "cn.banyuexuan.call.tablet"
-        minSdk = 26
+        minSdk = 24
         targetSdk = 36
         versionCode = (System.currentTimeMillis() / 60000L).toInt()   // 每次编译自动递增(以分钟计),无需手改
         versionName = "0.2." + SimpleDateFormat("MMdd.HHmm").format(Date())   // 版本号带编译时间,一眼看出新旧
+    }
+    // 同时兼容旧安装器的JAR签名及Android 7+签名。
+    signingConfigs.getByName("debug") {
+        enableV1Signing = true
+        enableV2Signing = true
     }
     packaging { resources { excludes += setOf("META-INF/INDEX.LIST", "META-INF/io.netty.versions.properties", "META-INF/DEPENDENCIES") } }
 }
