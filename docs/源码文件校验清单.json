@@ -8,7 +8,7 @@
   ".gitignore": "3cb09c935ec22c0e52ad62849f6b6e39f3543005d3dcfdb2bf4324651c897673",
   "AGENTS.md": "34f2368aafbade226a7b346f4cd5df27d054f602489a737262285f8b45ea17f8",
   "CLAUDE.md": "51b9142c881b93af0f17758a4be3ab6c359e25b92c48c8a55e23c4744adb6b19",
-  "tools/backup_checkpoint.py": "30f3c260d6a05d208df29c5bb206d49f82a7ac0923ec4bc255ee90d8ac7bff7b",
+  "tools/backup_checkpoint.py": "5518522044f163557ceae4ec4166b369c5ba7d7cf7e8277acaf3ecf6fe28350a",
   "tools/verify_backup.py": "f4b42bd22187c3e893bacfd1b729eea71e7b02e6073f6dd53fc0e3928ee18298",
   "host/update-host.bat": "79f9574c27d83fc30b6e40d61e2d69ad0557a63025c640ecc1bd7151d184ca88",
   "host/requirements.txt": "6ebcdf39621bf6e8f22a5933708da63d6978ff4773ac28320204850fd86e1fcb",

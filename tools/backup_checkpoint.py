@@ -10,8 +10,8 @@ BASE = Path.home() / '.banyuexuan-project-sync'
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--prepare-only', action='store_true')
-    # 2026-11-22 起镜像 origin 就是 solotank/banyuexuan-call-location（唯一远端），不再有第二仓库。
-    # 旧开关仅为兼容旧自动任务命令而保留，不再有任何作用。
+    # 镜像只有一个远端 origin = Alston3825/banyuexuan-call-location。
+    # 下面的隐藏开关只为兼容旧自动任务命令行而接受，没有任何作用。
     parser.add_argument('--with-solotank', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
     now = datetime.datetime.now(ZoneInfo('America/Los_Angeles'))
@@ -43,6 +43,9 @@ def main():
             raise RuntimeError('权威目录与同步配置不一致，停止')
         result = sync.snapshot(project)
         mirror = BASE / 'repos/call'
+        if sync.git(mirror, 'remote').split() != ['origin'] or not sync.git(
+                mirror, 'remote', 'get-url', 'origin').startswith('git@github.com:Alston3825/'):
+            raise RuntimeError('镜像远端不是唯一的 Alston3825 origin，停止')
         remote = sync.git(mirror, 'ls-remote', 'origin', 'refs/heads/main').split()[0]
         if remote != result['commit']:
             raise RuntimeError('远端HEAD不一致，停止登记成功')
