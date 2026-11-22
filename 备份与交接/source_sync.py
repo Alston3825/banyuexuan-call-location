@@ -15,7 +15,7 @@ def log(s):print(datetime.datetime.now().astimezone().isoformat(timespec='second
 GH='/Users/alston/.local/bin/gh'
 def remote_url(pr):
  # solotank 仓库走 HTTPS + gh 凭据助手（本机 SSH 钥匙属于另一个账号）；令牌不落文件。
- # 可选 remote_url 优先：call 项目（2026-11-22 起）只对接 solotank，走 ~/.ssh/config 的 github-solotank 部署密钥别名。
+ # 可选 remote_url 优先（通用支持，目前无项目使用）；未设置时 Alston3825 仓库走 git@github.com SSH。
  if pr.get('remote_url'):return pr['remote_url']
  return 'https://github.com/'+pr['repo']+'.git' if pr['repo'].startswith('solotank/') else 'git@github.com:'+pr['repo']+'.git'
 def cred(pr):
@@ -94,6 +94,6 @@ def main():
   try:r=snapshot(pr);results.append(r);log(pr['name']+' 源码文档备份成功 '+r['commit'][:7])
   except Exception as e:results.append({'name':pr['name'],'result':'failed','error':str(e)});log(pr['name']+' 失败 '+str(e))
  out=BASE/'status.json';tmp=out.with_suffix('.part');tmp.write_text(json.dumps(results,ensure_ascii=False,indent=2));os.replace(tmp,out)
- # 2026-11-22 起 call 的 origin 即 solotank，第二远端补推 mirror_solotank 已移除。
+ # call 只推 origin（Alston3825）；不存在第二远端补推。
  if any(r['result']!='ok' for r in results):sys.exit(1)
 if __name__=='__main__':main()

@@ -6,7 +6,7 @@
 
 本机原始开发目录：`/Users/alston/Projects/Codex/接手项目/伴月轩智能呼叫定位系统`。本次已完整复制到Codex目录；原目录保留作为历史副本。现有服务器地址不变。
 
-独立私有仓库（2026-11-22 起唯一备份仓库）：https://github.com/solotank/banyuexuan-call-location ，自动备份分支 `main`，检查点标签 `checkpoint/*`。旧仓库 Alston3825/banyuexuan-call-location 已停用（2026-11-22 起停用），不再推送。恢复时 clone 后显式切换该分支。已有生产仓库的 main 保持原发布流程，自动备份不会替你部署。
+独立私有仓库：https://github.com/Alston3825/banyuexuan-call-location ，自动备份分支 `main`。恢复时 clone 后显式切换该分支。已有生产仓库的 main 保持原发布流程，自动备份不会替你部署。
 
 ## 技术与运行
 
