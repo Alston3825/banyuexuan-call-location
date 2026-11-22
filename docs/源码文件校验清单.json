@@ -8,7 +8,7 @@
   "CLAUDE.md": "51b9142c881b93af0f17758a4be3ab6c359e25b92c48c8a55e23c4744adb6b19",
   "更新N100.bat": "3d4369efa716dfb507fd7f00a23084adad63e4c7c850337fbdffb12b56d0d33a",
   "更新N100.command": "4574b0de35ec647cc88758183af32d535b31833685b297d9067d5e658726f2f8",
-  "tools/backup_checkpoint.py": "577de582ad9bc46cb19a19dbfab5052440253090741b605e41bfa2f264a8b823",
+  "tools/backup_checkpoint.py": "fe25657a91e06295658aeda49e916c6ac31c9a4379fe694a284f7a3d0c1a0bee",
   "tools/verify_backup.py": "f4b42bd22187c3e893bacfd1b729eea71e7b02e6073f6dd53fc0e3928ee18298",
   "host/update-host.bat": "79f9574c27d83fc30b6e40d61e2d69ad0557a63025c640ecc1bd7151d184ca88",
   "host/requirements.txt": "6ebcdf39621bf6e8f22a5933708da63d6978ff4773ac28320204850fd86e1fcb",
