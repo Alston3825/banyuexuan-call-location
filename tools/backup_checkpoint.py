@@ -7,33 +7,12 @@ ROOT = Path(__file__).resolve().parents[1]
 BASE = Path.home() / '.banyuexuan-project-sync'
 
 
-def mirror_to_solotank(sync, mirror, commit, now):
-    """可选第二远端：claude.ai 项目使用的 solotank/banyuexuan-call-location。
-    仅当镜像里存在名为 solotank 的 remote 时推送；非 force，失败不影响主备份的成功登记，
-    但会写入 call-solotank-status.json 并以退出码 3 让自动任务显示失败。"""
-    status = {'checked_at': now.isoformat(timespec='seconds'), 'remote': 'solotank'}
-    if 'solotank' not in sync.git(mirror, 'remote').split():
-        status['result'] = 'not_configured'
-    else:
-        try:
-            sync.git(mirror, 'push', 'solotank', commit + ':refs/heads/main', timeout=300)
-            # 补推所有检查点标签（含之前未成功推送的），已存在的不会被改写
-            sync.git(mirror, 'push', 'solotank', 'refs/tags/checkpoint/*:refs/tags/checkpoint/*', timeout=300)
-            remote = sync.git(mirror, 'ls-remote', 'solotank', 'refs/heads/main', timeout=90).split()[0]
-            status.update(result='ok' if remote == commit else 'mismatch', commit=remote)
-        except Exception as error:
-            status.update(result='failed', error=str(error)[-500:])
-    target = BASE / 'call-solotank-status.json'
-    temp = target.with_suffix('.part')
-    temp.write_text(json.dumps(status, ensure_ascii=False, indent=2))
-    os.replace(temp, target)
-    return status
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--prepare-only', action='store_true')
-    # 2026-11-21用户明确授权第二仓库main/checkpoint同步；自动任务使用此显式开关。
-    parser.add_argument('--with-solotank', action='store_true')
+    # 2026-11-22 起镜像 origin 就是 solotank/banyuexuan-call-location（唯一远端），不再有第二仓库。
+    # 旧开关仅为兼容旧自动任务命令而保留，不再有任何作用。
+    parser.add_argument('--with-solotank', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
     now = datetime.datetime.now(ZoneInfo('America/Los_Angeles'))
     with (BASE / 'sync.lock').open('a') as lock:
@@ -70,19 +49,16 @@ def main():
         tag = 'checkpoint/' + now.strftime('%Y%m%d-%H%M%S')
         sync.git(mirror, 'tag', tag, result['commit'])
         sync.git(mirror, 'push', 'origin', 'refs/tags/' + tag)
-        result.update(checkpoint=tag, timezone='America/Los_Angeles')
+        remote_tag = sync.git(mirror, 'ls-remote', 'origin', 'refs/tags/' + tag).split()
+        if not remote_tag or remote_tag[0] != result['commit']:
+            raise RuntimeError('远端检查点标签不一致，停止登记成功')
+        result.update(checkpoint=tag, timezone='America/Los_Angeles',
+                      remote_url=sync.git(mirror, 'remote', 'get-url', 'origin'))
         target = BASE / 'call-checkpoint-status.json'
         temp = target.with_suffix('.part')
         temp.write_text(json.dumps(result, ensure_ascii=False, indent=2))
         os.replace(temp, target)
-        if args.with_solotank:
-            result['solotank'] = mirror_to_solotank(sync, mirror, result['commit'], now)
-        else:
-            result['solotank'] = {'result': 'deferred',
-                                  'note': '由 project-source-sync LaunchAgent 5 分钟内补推；查看 call-solotank-status.json'}
         print(json.dumps(result, ensure_ascii=False))
-        if result['solotank']['result'] not in ('ok', 'not_configured', 'deferred'):
-            raise SystemExit(3)
 
 if __name__ == '__main__':
     main()

@@ -3,7 +3,10 @@
     "id": "call",
     "name": "伴月轩智能呼叫定位系统",
     "source": "/请替换为恢复后的项目绝对路径",
-    "repo": "Alston3825/banyuexuan-call-location",
-    "existing": false
+    "repo": "solotank/banyuexuan-call-location",
+    "existing": false,
+    "remote_url": "git@github-solotank:solotank/banyuexuan-call-location.git",
+    "git_user_name": "solotank project backup",
+    "git_user_email": "359583904+solotank@users.noreply.github.com"
   }
 ]
