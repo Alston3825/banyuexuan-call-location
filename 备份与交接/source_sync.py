@@ -12,8 +12,8 @@ SKIP={'node_modules','.git','.venv','venv','build','dist','tmp','__pycache__','.
 EXT={'.pem','.key','.db','.sqlite','.sqlite3','.log','.jks','.keystore','.apk','.aab','.bin','.dmg','.exe','.so','.dylib','.zip','.gz','.tar','.enc','.part','.bak','.blend1'}
 TOKENS=[re.compile(x.encode()) for x in [r'-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----',r'gh[pousr]_[A-Za-z0-9]{30,}',r'github_pat_[A-Za-z0-9_]{30,}',r'AKIA[A-Z0-9]{16}',r'sk-[A-Za-z0-9_-]{25,}',r'AIza[A-Za-z0-9_-]{30,}']]
 def log(s):print(datetime.datetime.now().astimezone().isoformat(timespec='seconds')+' '+s,flush=True)
-def git(root,*args,ok=True):
- p=subprocess.run([GIT,'-C',str(root),*args],env=ENV,capture_output=True,text=True,timeout=1800)
+def git(root,*args,ok=True,timeout=1800):
+ p=subprocess.run([GIT,'-C',str(root),*args],env=ENV,capture_output=True,text=True,timeout=timeout)
  if ok and p.returncode:raise RuntimeError('git '+args[0]+' 失败：'+p.stderr[-700:])
  return p.stdout.strip()
 def excluded(p,rel):
@@ -77,6 +77,31 @@ def snapshot(pr):
  # 前次断网即使本次内容没变化也重试推送；不force、不删除远端历史。
  git(mirror,'push','origin','HEAD:refs/heads/'+branch)
  sha=git(mirror,'rev-parse','HEAD');return {'name':pr['name'],'repo':'https://github.com/'+pr['repo'],'branch':branch,'commit':sha,'checked_at':datetime.datetime.now().astimezone().isoformat(),'files':len(files),'result':'ok'}
+def mirror_solotank():
+ """呼叫定位系统第二远端补推：把最新 checkpoint 标签对应提交及全部 checkpoint 标签非 force 推到 solotank。
+ Codex 自动任务只负责 Alston3825 主备份与打标签，solotank 由本 LaunchAgent（不在 Codex 沙箱）补推；
+ 失败只写 call-solotank-status.json，不影响其他项目，下个 5 分钟周期自动重试。"""
+ mirror=BASE/'repos'/'call'
+ if not (mirror/'.git').exists() or 'solotank' not in git(mirror,'remote').split():return
+ status={'checked_at':datetime.datetime.now().astimezone().isoformat(timespec='seconds'),'remote':'solotank','by':'project-source-sync LaunchAgent'}
+ try:
+  tags=sorted(t for t in git(mirror,'tag','-l','checkpoint/*').split() if t)
+  if not tags:return
+  commit=git(mirror,'rev-parse',tags[-1]+'^{commit}')
+  heads=git(mirror,'ls-remote','solotank','refs/heads/main','refs/tags/checkpoint/*',timeout=90)
+  remote={}
+  for line in heads.splitlines():
+   sha,ref=line.split('\t');remote[ref]=sha
+  pushed=False
+  if remote.get('refs/heads/main')!=commit:git(mirror,'push','solotank',commit+':refs/heads/main',timeout=300);pushed=True
+  if any('refs/tags/'+t not in remote for t in tags):pushed=True;git(mirror,'push','solotank','refs/tags/checkpoint/*:refs/tags/checkpoint/*',timeout=300)
+  main=git(mirror,'ls-remote','solotank','refs/heads/main',timeout=90).split()[0]
+  status.update(result='ok' if main==commit else 'mismatch',commit=main,checkpoint=tags[-1])
+  if main==commit and pushed:log('solotank 补推成功 '+commit[:7]+' '+tags[-1])
+  elif main!=commit:log('solotank 镜像不一致 '+main[:7]+' != '+commit[:7])
+ except Exception as e:
+  status.update(result='failed',error=str(e)[-500:]);log('solotank 补推失败 '+str(e)[-300:])
+ out=BASE/'call-solotank-status.json';tmp=out.with_suffix('.part');tmp.write_text(json.dumps(status,ensure_ascii=False,indent=2));os.replace(tmp,out)
 def main():
  BASE.mkdir(exist_ok=True);lock=(BASE/'sync.lock').open('a')
  try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
@@ -86,5 +111,7 @@ def main():
   try:r=snapshot(pr);results.append(r);log(pr['name']+' 源码文档备份成功 '+r['commit'][:7])
   except Exception as e:results.append({'name':pr['name'],'result':'failed','error':str(e)});log(pr['name']+' 失败 '+str(e))
  out=BASE/'status.json';tmp=out.with_suffix('.part');tmp.write_text(json.dumps(results,ensure_ascii=False,indent=2));os.replace(tmp,out)
+ try:mirror_solotank()
+ except Exception as e:log('solotank 补推异常 '+str(e)[-300:])
  if any(r['result']!='ok' for r in results):sys.exit(1)
 if __name__=='__main__':main()
