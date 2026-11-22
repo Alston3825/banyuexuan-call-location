@@ -28,7 +28,7 @@ class Transcriber:
         self._engine = engine            # 测试时可注入:engine(path) -> str
         self._model = None
         self._last_error = None
-        self._lock = threading.Lock()    # 一次只识别一条,避免把 N100 的 CPU 占满影响呼叫
+        self._lock = threading.Lock()    # 一次只识别一条,避免把 N150 的 CPU 占满影响呼叫
         with closing(sqlite3.connect(self.db_path)) as db:
             db.execute('CREATE TABLE IF NOT EXISTS voice_transcripts(name TEXT PRIMARY KEY, text TEXT NOT NULL, at REAL NOT NULL)')
             db.commit()

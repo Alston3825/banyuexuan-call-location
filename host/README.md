@@ -30,7 +30,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt pytest httpx
 ```
 真实 MQTT 冒烟(需要本机有 broker):`python tools/mqtt_smoke.py <端口>`。
 
-> 正式部署在 N100 迷你主机(Ubuntu Server 24.04)上,**完整步骤见 `docs/09-主机部署手册.md`**(BIOS、系统安装、固定 IP、一键初始化脚本 `deploy/install-ubuntu.sh`、云备份配置、启动验证、运维、断电处理)。
+> 正式部署在 N150 迷你主机(Ubuntu Server 24.04)上,**完整步骤见 `docs/09-主机部署手册.md`**(BIOS、系统安装、固定 IP、一键初始化脚本 `deploy/install-ubuntu.sh`、云备份配置、启动验证、运维、断电处理)。
 
 ## 用 Docker 启动
 开发(匿名 MQTT):`docker compose up -d --build`。HTTP 对外端口 8100(容器内 8000)。

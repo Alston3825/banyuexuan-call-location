@@ -13,7 +13,7 @@ class ScreenLocationState:
         self.sequence = 0
         self.signature = None
 
-    def build(self, views, now):
+    def build(self, views, now, people=None):
         items = []
         for v in views:
             if v['staff'] is None:
@@ -22,6 +22,8 @@ class ScreenLocationState:
                 'room', 'area', 'floor', 'precision', 'coordinates', 'received_at', 'observed_at',
                 'age_seconds', 'stale_after_seconds', 'valid_until', 'offline_since', 'device_last_seen')}
             item['zone_id'] = v['beacon'] if v['location_status'] == 'fresh' else None
+            # Display identity for the internal 3D screen (user decision 2026-11-21): name + role only.
+            item.update((people or {}).get(v['staff'], {}))
             items.append(item)
         items.sort(key=lambda v: (v['staff'], v['watch']))
         # Age is a presentation clock; it must not create a new revision without a factual change.

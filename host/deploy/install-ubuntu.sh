@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 伴月轩呼叫主机一次性初始化脚本(Ubuntu Server 24.04 LTS,x86_64,如 N100 迷你主机)
+# 伴月轩呼叫主机一次性初始化脚本(Ubuntu Server 24.04 LTS,x86_64,如 N150 迷你主机)
 # 用法: sudo bash deploy/install-ubuntu.sh --lan 192.168.1.0/24
 #   --lan  店内局域网网段:SSH(22)等主机自身服务只对该网段开放(MQTT/大屏端口见脚本末尾注意事项)
 # 可重复运行。需要联网(安装软件包);装完后主机可断外网运行。

@@ -23,6 +23,7 @@ from .routing import CUSTOM, ButtonRouting
 from .locator import Locator
 from .location_state import LocationReports
 from .screen_state import ScreenLocationState
+from .twin_calls import TwinCallState
 from .telemetry import Telemetry
 from .terminal_config import TerminalConfigs
 from .watches import STATUS_TEXT, WatchError, WatchRegistry
@@ -64,6 +65,7 @@ class HostService:
         self.locator = Locator(cfg.beacons)
         self.location_reports = LocationReports(db_path, cfg.store_id, uuid.uuid4().hex)
         self.screen_locations = ScreenLocationState(self.location_reports.epoch)
+        self.twin_call_state = TwinCallState(self.location_reports.epoch)
         self.rejected_count = 0
         self.caps = {}                  # watch -> set(能力),来自心跳;老 APK 没有 → 不等回执
         self.unreachable = {}           # staff -> 起始时间:连续收不到派单(无回执),暂按离线处理
@@ -206,8 +208,17 @@ class HostService:
         with self.screen_locations.lock:
             views = self.location_views()
             public = dict(schema='bycall.location.v1', store_id=self.cfg.store_id,
-                          **self.screen_locations.build(views, self._now()))
+                          **self.screen_locations.build(views, self._now(), self._display_people()))
             return dict(views=views, public=public)
+
+    def _display_people(self):
+        roles = self.cfg.roles or {}
+        return {sid: dict(display_name=self.cfg.name(sid), role=self.cfg.role_of(sid),
+                          role_name=roles.get(self.cfg.role_of(sid), self.cfg.role_of(sid)))
+                for sid in self.cfg.staff}
+
+    def twin_calls(self):
+        return self.twin_call_state.build(self.core, self.cfg, self._now())
 
     def _location(self, staff):
         return next((v for v in self.location_views()

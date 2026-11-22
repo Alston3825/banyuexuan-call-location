@@ -91,8 +91,8 @@ class DeployTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
         base=Path(__file__).resolve().parents[1]
-        self.local=module('deploy_local',base/'deploy/deploy_n100.py')
-        self.remote=module('deploy_remote',base/'deploy/n100_remote.py')
+        self.local=module('deploy_local',base/'deploy/deploy_n150.py')
+        self.remote=module('deploy_remote',base/'deploy/n150_remote.py')
         (self.root/'host/bycall').mkdir(parents=True)
         (self.root/'host/tools').mkdir()
         (self.root/'host/bycall/main.py').write_text('x=1')

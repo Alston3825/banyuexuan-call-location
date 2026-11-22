@@ -1,6 +1,6 @@
 # 本轮验证记录
 
-日期：2026-11-20（America/Los_Angeles）。本地源码20261120-station60-twin-dev，未再次发布到N100。
+日期：2026-11-20（America/Los_Angeles）。本地源码20261120-station60-twin-dev，未再次发布到N150。
 
 - 完整后端回归：160项通过，使用已有linux/amd64镜像、无网络隔离容器、只读源码及临时虚构数据库。
 - Android专项：common远程配置9项、watch信标解析/过滤/采样6项，共15项通过。
@@ -18,4 +18,17 @@
 
 ## 2026-11-21 Android 7平板兼容
 
-用户新7寸平板Android7.1.1解析APK失败；已确认此前最低API26门槛。最新版development/bycall中tablet/common降为API24，手表保持26，平板保留原签名并启用v1/v2。平板构建/lint（0 errors）与共享9项测试通过，手表构建通过；详见development/bycall/docs/20-安卓7平板兼容.md。交付包dist/tablet-android7-20261121；未实机安装、未发布N100。现场版本仍为此前记录。
+用户新7寸平板Android7.1.1解析APK失败；已确认此前最低API26门槛。最新版development/bycall中tablet/common降为API24，手表保持26，平板保留原签名并启用v1/v2。平板构建/lint（0 errors）与共享9项测试通过，手表构建通过；详见development/bycall/docs/20-安卓7平板兼容.md。交付包dist/tablet-android7-20261121；未实机安装、未发布N150。现场版本仍为此前记录。
+
+
+## 2026-11-21 主机界面视觉重设计（本地，未发布）
+
+用户要求先优化本地改动再发布，并重新设计主机界面。development/bycall 中护士站大屏全面重设计，终端后台/换表/报表/备份/更新页统一为同一深色设计系统；只改样式与少量展示结构，接口、数据和逻辑不变，Android 未改。版本标识 20261121-ui-redesign-dev。166 项后端回归与 6 页脚本语法检查通过；虚构数据截图见 development/bycall/docs/assets/ui-redesign-*.png。详见 development/bycall/docs/21-主机界面视觉重设计.md。未在 N150 实屏验收、未发布；发布需用户另行确认，现场版本仍为此前记录。
+
+## 2026-11-21 云端分支：数字孪生呼叫投影与台架联调
+
+分支 claude/project-thread-tsvsnd（未合入、未发布）。后端完整回归 171 项通过（原 166 + 呼叫投影 5 项），Node 适配器 14 项通过（定位 9 + 呼叫 5）。台架联调 T1–T9 通过、T10 未做，详见 docs/22-数字孪生呼叫投影与台架联调.md。环境为云端容器 Python 3.13 虚拟环境，不是此前的 amd64 镜像；合并回 Mac 后需按原方式重跑。
+
+### 2026-11-22 回流 ui-redesign 后复测（云端分支）
+
+本分支合入最新 main（含 Android 7 兼容）并三方合并 ui-redesign 后：后端 171 项、Node 14 项、根目录 host/tests/test_stt_deploy.py 16 项通过；6 个页面脚本语法检查通过；台架 T1–T9 再次全部通过（主机版本 20261121-ui-redesign-dev），重设计后的护士站页面用台架数据截图核对正常。Android 本轮未改、未重新构建。

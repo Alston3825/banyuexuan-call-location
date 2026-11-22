@@ -1,0 +1,201 @@
+{
+ "store_id": "gx",
+ "rooms": {
+  "2407": {
+   "floor": "24",
+   "tablet": "tab-2407"
+  },
+  "2408": {
+   "floor": "24",
+   "tablet": "tab-2408"
+  },
+  "2409": {
+   "floor": "24",
+   "tablet": "tab-2409"
+  },
+  "2410": {
+   "floor": "24",
+   "tablet": "tab-2410"
+  },
+  "2411": {
+   "floor": "24",
+   "tablet": "tab-2411"
+  },
+  "2412": {
+   "floor": "24",
+   "tablet": "tab-2412"
+  },
+  "2413": {
+   "floor": "24",
+   "tablet": "tab-2413"
+  },
+  "2414": {
+   "floor": "24",
+   "tablet": "tab-2414"
+  },
+  "2415": {
+   "floor": "24",
+   "tablet": "tab-2415"
+  },
+  "2416": {
+   "floor": "24",
+   "tablet": "tab-2416"
+  },
+  "2417": {
+   "floor": "24",
+   "tablet": "tab-2417"
+  },
+  "2418": {
+   "floor": "24",
+   "tablet": "tab-2418"
+  },
+  "2419": {
+   "floor": "24",
+   "tablet": "tab-2419"
+  },
+  "2420": {
+   "floor": "24",
+   "tablet": "tab-2420"
+  },
+  "2421": {
+   "floor": "24",
+   "tablet": "tab-2421"
+  },
+  "2422": {
+   "floor": "24",
+   "tablet": "tab-2422"
+  },
+  "2423": {
+   "floor": "24",
+   "tablet": "tab-2423"
+  },
+  "2424": {
+   "floor": "24",
+   "tablet": "tab-2424"
+  },
+  "2425": {
+   "floor": "24",
+   "tablet": "tab-2425"
+  },
+  "2426": {
+   "floor": "24",
+   "tablet": "tab-2426"
+  },
+  "2429": {
+   "floor": "24",
+   "tablet": "tab-2429"
+  }
+ },
+ "beacons": {
+  "24-1": {
+   "area": "2414 房内",
+   "room": "2414",
+   "floor": "24"
+  },
+  "24-2": {
+   "area": "2415 房内",
+   "room": "2415",
+   "floor": "24"
+  },
+  "24-3": {
+   "area": "护理站",
+   "room": null,
+   "floor": "24"
+  },
+  "24-4": {
+   "area": "走廊（2414–2415 门口）",
+   "room": null,
+   "floor": "24"
+  },
+  "24-9": {
+   "area": "台架未配锚点区域",
+   "room": null,
+   "floor": "24"
+  }
+ },
+ "staff": {
+  "n01": {
+   "name": "台架护理师甲",
+   "watch": "w-01",
+   "floors": [
+    "24"
+   ]
+  },
+  "n02": {
+   "name": "台架护理师乙",
+   "watch": "w-02",
+   "floors": [
+    "24"
+   ]
+  },
+  "n03": {
+   "name": "台架护理组长",
+   "watch": "w-03",
+   "floors": [
+    "24"
+   ]
+  },
+  "m01": {
+   "name": "台架送餐员",
+   "watch": "w-04",
+   "role": "meal",
+   "floors": [
+    "24"
+   ]
+  },
+  "c01": {
+   "name": "台架保洁员",
+   "watch": "w-05",
+   "role": "cleaner",
+   "floors": [
+    "24"
+   ]
+  },
+  "f01": {
+   "name": "台架前台",
+   "watch": "w-06",
+   "role": "front_desk",
+   "floors": [
+    "24"
+   ]
+  }
+ },
+ "spare_watches": [
+  "w-09"
+ ],
+ "groups": {
+  "g24": [
+   "n01",
+   "n02"
+  ]
+ },
+ "assignments": {
+  "2414": {
+   "day": "n01",
+   "night": "n01"
+  },
+  "2415": {
+   "day": "n02",
+   "night": "n02"
+  }
+ },
+ "leaders": {
+  "g24": "n03"
+ },
+ "roles": {
+  "nurse": "护理师",
+  "meal": "送餐员",
+  "cleaner": "保洁员",
+  "front_desk": "前台"
+ },
+ "request_types": {
+  "FEED": "宝宝喂奶",
+  "DIAPER": "换尿布",
+  "BABY_CRY": "宝宝哭闹",
+  "UNWELL": "身体不适",
+  "NEED_NURSE": "呼叫护理师",
+  "EMERGENCY": "紧急"
+ },
+ "group_after": 30,
+ "leader_after": 60
+}

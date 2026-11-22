@@ -492,6 +492,12 @@ def create_app(svc, voice: VoiceStore, api_key: Optional[str] = None, host_statu
         # Exactly the same location envelope as station/snapshot.location_state; only auth differs.
         return svc.location_snapshot()['public']
 
+    @app.get('/integration/twin/calls', dependencies=[Depends(twin_auth)])
+    def twin_calls(response: Response):
+        response.headers['Cache-Control'] = 'no-store'
+        # Read-only call projection for the 3D screen: no voice, transcript or free text.
+        return svc.twin_calls()
+
     @app.get('/nurses/{staff}/vitals', dependencies=[Depends(auth)])
     def vitals(staff: str, limit: int = 100):
         return svc.tele.vitals(staff, min(limit, 1000))

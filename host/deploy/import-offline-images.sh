@@ -2,7 +2,7 @@
 # 本脚本放在离线包根目录运行；只导入专用镜像和离线 Compose 覆盖文件，不启动服务。
 set -euo pipefail
 [[ "$EUID" -eq 0 ]] || { echo '请执行: sudo bash import-images.sh'; exit 2; }
-[[ "$(uname -m)" == x86_64 ]] || { echo '此包只适用于 N100 等 x86_64 主机。'; exit 2; }
+[[ "$(uname -m)" == x86_64 ]] || { echo '此包只适用于 N150 等 x86_64 主机。'; exit 2; }
 bundle="$(cd "$(dirname "$0")" && pwd)"
 project="${1:-/opt/bycall/host}"
 [[ -f "$project/docker-compose.yml" ]] || { echo "未找到 $project/docker-compose.yml，请先放置源码目录。"; exit 2; }

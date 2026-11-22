@@ -8,8 +8,8 @@
 - 用户最初将实际模型放在 `/opt/bycall/host/whisper-small`，而非 models 下；`models` 是 root 创建的不可写空目录。
 - 按用户明确授权，将旧空目录保留为 `models.empty-before-43badcab`，重新建立用户可维护的 models，并复制到 `/opt/bycall/host/models/whisper-small`。model.bin、config.json、tokenizer.json 逐一 SHA256 比较一致；忽略 Apple `._*` 辅助文件。原 `/opt/bycall/host/whisper-small` 保留。
 - model.bin 实际为 483546902 字节，包含本地 CTranslate2 所需文件。
-- 在 Mac 临时目录只读复制同一模型，使用隔离 x86_64 镜像成功加载真实权重，并对本地合成的虚构中文音频完成离线识别。未处理客户录音；合成句的房号有识别错字，不把此测试当作临床场景准确率或 N100 速度验收。
-- 最新只读检查中 `.env` 尚未建立；SSH 普通用户不能直接操作 Docker，也没有免密 sudo。N100 服务未由本轮工作启动/升级；脚本执行时在用户自己的终端交互输入 sudo 密码。
+- 在 Mac 临时目录只读复制同一模型，使用隔离 x86_64 镜像成功加载真实权重，并对本地合成的虚构中文音频完成离线识别。未处理客户录音；合成句的房号有识别错字，不把此测试当作临床场景准确率或 N150 速度验收。
+- 最新只读检查中 `.env` 尚未建立；SSH 普通用户不能直接操作 Docker，也没有免密 sudo。N150 服务未由本轮工作启动/升级；脚本执行时在用户自己的终端交互输入 sudo 密码。
 
 ## 模型功能改动
 
@@ -18,25 +18,25 @@
 - `STT_MODEL_DIR` 默认 `/models`：可直接放模型文件，也可在其下放一个模型子目录；目录名称可以不同，不依赖拼写。多个候选时必须指定准确路径。
 - 至少检查真实的 `model.bin`、有效 `config.json`、有效 `tokenizer.json`；空文件和 Git LFS 指针明确拒绝。OpenAI `.pt`、普通 HuggingFace pytorch_model.bin 不是可直接使用的 CTranslate2 模型。
 - tokenizer.json 缺失时拒绝加载，防止 faster-whisper 回退联网下载 tokenizer；使用本地路径与 local_files_only=True。
-- N100 使用 CPU / int8，默认 2 个线程，可通过 STT_CPU_THREADS 配置（1–4）。
+- N150 使用 CPU / int8，默认 2 个线程，可通过 STT_CPU_THREADS 配置（1–4）。
 - 大屏“最近已结束”栏显示转文字状态；`GET /station/stt` 需护士站 API 密钥，返回 available（文件结构是否就绪）、loaded（当前服务是否已实际加载）和错误信息。文件齐全不代表已经完成真实识别。
 - 同一条语音的并发识别增加锁内缓存复查，避免重复计算。识别文本是辅助展示，客户呼叫房间和派单继续以业务事件为准，不从识别错字推导房号。
 
-在 N100 已安装新版后可单独检查（下列命令不写业务库）：
+在 N150 已安装新版后可单独检查（下列命令不写业务库）：
 
 ```sh
 cd /opt/bycall/host
 sudo docker compose run --rm --no-deps --pull never -T host python tools/check_stt_model.py --load
 ```
 
-正式功能验收：从测试客房平板录一句明确的中文留言，在大屏“播放”核对原声，再点“转文字”；核对文字、缓存、断外网状态和 N100 实际耗时。没有真实录音验收前不宣称识别准确率达标。
+正式功能验收：从测试客房平板录一句明确的中文留言，在大屏“播放”核对原声，再点“转文字”；核对文字、缓存、断外网状态和 N150 实际耗时。没有真实录音验收前不宣称识别准确率达标。
 
 ## 脚本在哪里、在哪里运行
 
-- **Mac：在当前开发项目根目录双击 `更新N100.command`。**
-- Windows：同一源码根目录运行 `更新N100.bat`，需自行安装 Python 3/OpenSSH 并授权 Windows 的 SSH 公钥；不应复制 Mac 私钥。
-- 两者共用 `host/deploy/deploy_n100.py`。远端执行器为 `host/deploy/n100_remote.py`。
-- 脚本在开发电脑运行，N100 是传输/构建目标；不是在 Ubuntu 双击 .bat。
+- **Mac：在当前开发项目根目录双击 `更新N150.command`。**
+- Windows：同一源码根目录运行 `更新N150.bat`，需自行安装 Python 3/OpenSSH 并授权 Windows 的 SSH 公钥；不应复制 Mac 私钥。
+- 两者共用 `host/deploy/deploy_n150.py`。远端执行器为 `host/deploy/n150_remote.py`。
+- 脚本在开发电脑运行，N150 是传输/构建目标；不是在 Ubuntu 双击 .bat。
 - 升级工具 ZIP 是当前源码快照。日常修改发生在原项目时，应使用原项目的入口；另处解压的旧快照不会自动跟随原项目变化。
 
 菜单：
@@ -45,15 +45,15 @@ sudo docker compose run --rm --no-deps --pull never -T host python tools/check_s
 2. 只在本机打包源码。
 3. 首次配置并启动测试主机：仅 .env 不存在且无主机容器时允许，输入“测试初始化”继续。
 4. 升级已运行的主机/大屏：输入“上线”继续。
-5. 仅传输并校验源码包，暂存到 N100 用户缓存，不执行 sudo 或切换服务。
+5. 仅传输并校验源码包，暂存到 N150 用户缓存，不执行 sudo 或切换服务。
 
-用户在终端输入 N100 sudo 密码，由 SSH 终端完成隐藏输入；程序不读取、保存或发送密码到聊天。没有设置 NOPASSWD:ALL，也没有添加 Docker 组等长期权限。
+用户在终端输入 N150 sudo 密码，由 SSH 终端完成隐藏输入；程序不读取、保存或发送密码到聊天。没有设置 NOPASSWD:ALL，也没有添加 Docker 组等长期权限。
 
 如果是完全新装且没有运行中的呼叫服务，才选 **3**；已有运行服务时选 **4**，并先确认其真实安装目录。
 
 **当前现场的新发现：192.168.1.108:8100/health 已运行 20261113-1840，但 /opt/bycall/host 无 .env。暂停首次初始化，先通过 sudo 容器清单定位既有服务的项目名和工作目录；不能直接删除容器或对新目录强行升级。**
 
-首次启动成功后，在 N100 浏览器打开 `http://192.168.1.108:8100/station`。主机密钥已自动生成在 N100 的 .env；可在 N100 本地终端用 `sudo nano /opt/bycall/host/.env` 查看 BYCALL_API_KEY，复制到大屏“连接设置”。不要把该密钥或 .env 发到聊天。步骤 3/4 会执行启动/切换，应在可接受短暂停机的测试时段由用户主动运行；本轮没有代为执行。
+首次启动成功后，在 N150 浏览器打开 `http://192.168.1.108:8100/station`。主机密钥已自动生成在 N150 的 .env；可在 N150 本地终端用 `sudo nano /opt/bycall/host/.env` 查看 BYCALL_API_KEY，复制到大屏“连接设置”。不要把该密钥或 .env 发到聊天。步骤 3/4 会执行启动/切换，应在可接受短暂停机的测试时段由用户主动运行；本轮没有代为执行。
 
 ## 自动升级的具体过程
 
@@ -61,9 +61,9 @@ sudo docker compose run --rm --no-deps --pull never -T host python tools/check_s
 2. 通过已核验的 SSH/SCP 传输到 `~/.cache/bycall-deploy/<版本>`，两端 SHA256 校验。始终保留 StrictHostKeyChecking，未知主机密钥不会自动接受。
 3. 用户交互 sudo 后，远端取得项目独占升级锁。读取 Compose 配置仅供本机执行，不输出其中的真实密钥。
 4. 校验当前镜像 requirements.txt 与新包一致；**依赖变化则停止**，需按完整离线镜像流程重建，不能靠“只传 Python 文件”安装新增依赖。
-5. 基于 N100 已有镜像，通过临时 Compose 离线增量构建新版本；没有 pip install、没有外部 RUN，pull=false / network=none。不改真实 Compose 或 .env，不要求安装 buildx。
+5. 基于 N150 已有镜像，通过临时 Compose 离线增量构建新版本；没有 pip install、没有外部 RUN，pull=false / network=none。不改真实 Compose 或 .env，不要求安装 buildx。
 6. 在无网络、临时数据库中运行全部源码测试；再在只读模型隔离容器中实际加载语音权重。预检失败不停止现有主机。
-7. 升级模式：定位现有 /data 挂载，停止 host 后创建一致性 SQLite 备份并做 integrity_check；只保存在 N100 的 `upgrade-backups/<版本>/host.db`，目录 0700，文件 0600。
+7. 升级模式：定位现有 /data 挂载，停止 host 后创建一致性 SQLite 备份并做 integrity_check；只保存在 N150 的 `upgrade-backups/<版本>/host.db`，目录 0700，文件 0600。
 8. 首次初始化模式：复用已生成的演示设备账号，自动生成强主机密钥和独立换表管理员令牌，.env 使用 0600；不覆盖任何现有 .env。
 9. 保留旧镜像引用，把新镜像绑定到当前配置使用的 bycall-host 标签，避免后续 Compose 意外退回旧版本；升级时只切 host，保留 MQTT、密码、模型、数据及连接挂载。
 10. 启动后校验 health 和精确版本号，最多 90 秒。健康失败时尝试恢复旧镜像并再验健康；首次启动失败也尝试原镜像，无法恢复时停止 host 避免循环重启。
@@ -79,9 +79,9 @@ sudo docker compose run --rm --no-deps --pull never -T host python tools/check_s
 ## 已做验证与未做事项
 
 - 153 项完整回归全部通过（147 既有 +6 项目归属/已有服务保护回归）。，包括模型选择、离线加载参数、模型错误、并发缓存、源码过滤、传输校验、初始化保护和健康失败恢复旧镜像/保留数据库。
-- 已验证实际 CTranslate2 模型加载和合成音频解码；真实客房录音、N100 原生性能待验。
+- 已验证实际 CTranslate2 模型加载和合成音频解码；真实客房录音、N150 原生性能待验。
 - Docker 直接及 Compose 离线增量构建在开发机通过，使用独立测试标签，未替换原有运行服务。
-- Mac 新脚本已成功只读连接 N100，发现正确模型；源码包和执行器已成功暂存并通过传输 SHA256 校验，未执行 sudo、首次启动或升级。
+- Mac 新脚本已成功只读连接 N150，发现正确模型；源码包和执行器已成功暂存并通过传输 SHA256 校验，未执行 sudo、首次启动或升级。
 - Mac .command 语法与 Python 程序检查通过；Windows .bat 已提供，未在真实 Windows 验证。
 - 本轮不包含 Android APK 构建/发布；该部分继续使用现有独立 APK 发布流程。
 
@@ -89,8 +89,8 @@ sudo docker compose run --rm --no-deps --pull never -T host python tools/check_s
 
 用户首次执行时出现 `.env` 不存在却提示已有主机容器。代码中在生成 .env 前使用目录默认项目名 host、之后切换为 bycall，导致检查和启动范围不一致。本轮已统一初始化的配置解析、容器查询、启动、健康检查与恢复全部显式使用 bycall。升级沿用既有配置解析出的项目名，并校验容器的 service/project/working_dir 和一次性任务标签；不会操作其他项目容器。
 
-首次初始化还检查已有数据库与计划端口；若存在数据但丢失 .env 或端口占用，会保留现场并停止，不自动删除容器或重置数据库。容器列表需要在 N100 本地 sudo 查询，SSH 普通用户无 Docker 读取权限。
+首次初始化还检查已有数据库与计划端口；若存在数据但丢失 .env 或端口占用，会保留现场并停止，不自动删除容器或重置数据库。容器列表需要在 N150 本地 sudo 查询，SSH 普通用户无 Docker 读取权限。
 
-新客户端只读检查会显示 active_health；无 Docker 权限时 services=null，而不是空列表，避免误认为没有容器。如果健康接口已存在，选择首次初始化会在上传/执行 sudo 前阻断，提示先核对现有部署。此前部分 HTTP 探测未排除 Mac 代理影响，不能据此断言 N100 没有服务；当前直连健康结果为准。
+新客户端只读检查会显示 active_health；无 Docker 权限时 services=null，而不是空列表，避免误认为没有容器。如果健康接口已存在，选择首次初始化会在上传/执行 sudo 前阻断，提示先核对现有部署。此前部分 HTTP 探测未排除 Mac 代理影响，不能据此断言 N150 没有服务；当前直连健康结果为准。
 
-注意：models/whisper-small 的复制在新安装资料目录 /opt/bycall/host 中完成；旧版运行服务的实际目录和模型挂载仍需容器清单确认，当前不能据此声称运行中的 N100 旧服务已经接入新目录模型。
+注意：models/whisper-small 的复制在新安装资料目录 /opt/bycall/host 中完成；旧版运行服务的实际目录和模型挂载仍需容器清单确认，当前不能据此声称运行中的 N150 旧服务已经接入新目录模型。

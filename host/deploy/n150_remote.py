@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""N100 升级执行器：由桌面端暂存后，以交互 sudo 调用；不保存密码。"""
+"""N150 升级执行器：由桌面端暂存后，以交互 sudo 调用；不保存密码。"""
 import argparse
 import fcntl
 import hashlib
@@ -187,7 +187,7 @@ def _apply_locked(project, archive, digest, initialize=False, bind_ip='192.168.1
     if os.geteuid()!=0:
         raise DeployError('需要在本地终端通过交互 sudo 执行；不要把密码发给助手')
     if platform.machine()!='x86_64':
-        raise DeployError('目标不是 x86_64 N100')
+        raise DeployError('目标不是 x86_64 N150')
     if not (project/'docker-compose.yml').is_file():
         raise DeployError('未找到安装目录')
     if initialize and (project/'.env').exists():
@@ -232,7 +232,7 @@ def _apply_locked(project, archive, digest, initialize=False, bind_ip='192.168.1
         run(['docker','tag',base_id,base_tag])
         (ctx/'Dockerfile').write_text('FROM '+base_tag+'\nCOPY bycall /app/bycall\nCOPY tools /app/tools\n')
         print('[1/5] 本地离线增量构建（不下载基础镜像或依赖）',flush=True)
-        # 与 N100 已验证的 compose build 路径一致，不要求额外安装 buildx。
+        # 与 N150 已验证的 compose build 路径一致，不要求额外安装 buildx。
         build_spec=ctx/'compose-build.json'
         build_spec.write_text(json.dumps(dict(services=dict(candidate=dict(image=new_tag,platform='linux/amd64',
                                   build=dict(context=str(ctx),dockerfile='Dockerfile',pull=False,network='none'))))))
@@ -266,7 +266,7 @@ def _apply_locked(project, archive, digest, initialize=False, bind_ip='192.168.1
                 compose(project,'stop','-t','20','host',capture=False,project_name=project_name)
                 snapshot_database(data/'host.db',backup/'host.db')
             else:
-                print('[3/5] 首次生成配置，密钥只保存在 N100 本机',flush=True)
+                print('[3/5] 首次生成配置，密钥只保存在 N150 本机',flush=True)
                 initialize_env(project,bind_ip)
             run(['docker','tag',new_tag,image])
             print('[4/5] 启动新主机并校验健康/版本（最多90秒，保留原有连接配置和挂载）',flush=True)
@@ -276,7 +276,7 @@ def _apply_locked(project, archive, digest, initialize=False, bind_ip='192.168.1
             if not wait_health(project,meta['version'],project_name=project_name):
                 raise DeployError('新主机健康或版本校验未通过')
             print('[5/5] 升级完成，版本 '+meta['version']+'；模型实际加载验证通过。',flush=True)
-            print(('数据库快照' if old else '版本记录')+'仅保留在 N100：'+str(backup),flush=True)
+            print(('数据库快照' if old else '版本记录')+'仅保留在 N150：'+str(backup),flush=True)
         except BaseException as error:
             print('更新失败，保留数据库和错误现场，尝试恢复旧镜像。',flush=True)
             try:

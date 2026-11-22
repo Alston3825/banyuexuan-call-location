@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mac / Windows 共用的 N100 调试发布入口：只传白名单源码，N100 基于本地镜像离线增量构建。"""
+"""Mac / Windows 共用的 N150 调试发布入口：只传白名单源码，N150 基于本地镜像离线增量构建。"""
 import argparse
 import hashlib
 import io
@@ -58,7 +58,7 @@ def ssh_options(args, binary='ssh'):
 
 def readonly_check(args):
     # 在标准输入执行源码，不上传任何文件。
-    worker=(ROOT/'host/deploy/n100_remote.py').read_text()
+    worker=(ROOT/'host/deploy/n150_remote.py').read_text()
     cmd=ssh_options(args)+[args.target,shlex.join(['python3','-','check','--project',args.project,'--bind-ip',args.host])]
     result=run(cmd,input=worker,text=True,capture_output=True)
     print(result.stdout,flush=True)
@@ -66,7 +66,7 @@ def readonly_check(args):
 
 
 def menu(args):
-    print('1. 只读检查 SSH、模型和安装状态\n2. 打包源码（不连接 N100）\n3. 首次配置并启动测试主机\n4. 升级已运行的主机/大屏\n5. 仅传输源码包，不执行升级')
+    print('1. 只读检查 SSH、模型和安装状态\n2. 打包源码（不连接 N150）\n3. 首次配置并启动测试主机\n4. 升级已运行的主机/大屏\n5. 仅传输源码包，不执行升级')
     choice=input('请选择 [默认 1]：').strip() or '1'
     actions={'1':'check','2':'package','3':'initialize','4':'apply','5':'stage'}
     if choice not in actions:raise RuntimeError('无效选择')
@@ -97,28 +97,28 @@ def main():
             raise RuntimeError('尚未确认执行；可先选只读检查或打包')
         if args.action in ('apply','initialize') and not sys.stdin.isatty():
             raise RuntimeError('请在 Mac/Windows 的交互终端运行，以便本机输入 sudo 密码')
-        archive,meta,digest=package(ROOT,ROOT/'dist/n100-releases')
+        archive,meta,digest=package(ROOT,ROOT/'dist/n150-releases')
         print('源码包：'+str(archive)+'（'+str(archive.stat().st_size)+' 字节；不含模型、密码或数据库）',flush=True)
         if args.action=='package':return 0
         # 先检查 SSH，再在用户缓存中暂存；从不关闭主机密钥核验。
         status=readonly_check(args)
         if args.action=='initialize' and (status.get('active_health') or {}).get('ok'):
-            raise RuntimeError('N100 已有呼叫服务运行，请先核对其容器和配置目录；未传输或初始化，不能按全新安装覆盖')
+            raise RuntimeError('N150 已有呼叫服务运行，请先核对其容器和配置目录；未传输或初始化，不能按全新安装覆盖')
         remote='.cache/bycall-deploy/'+meta['version']
         mkdir='from pathlib import Path; Path('+repr(remote)+').mkdir(parents=True,exist_ok=True,mode=0o700)'
         run(ssh_options(args)+[args.target,shlex.join(['python3','-c',mkdir])])
-        worker=ROOT/'host/deploy/n100_remote.py'
+        worker=ROOT/'host/deploy/n150_remote.py'
         run(ssh_options(args,'scp')+[archive,worker,args.target+':'+remote+'/'])
         verify='import hashlib; from pathlib import Path; p=Path('+repr(remote+'/'+archive.name)+'); assert hashlib.sha256(p.read_bytes()).hexdigest()=='+repr(digest)+'; print("传输 SHA256 校验通过")'
         run(ssh_options(args)+[args.target,shlex.join(['python3','-c',verify])])
         if args.action=='stage':
-            print('已暂存到 N100：'+remote+'；未安装、未生成密钥、未重启服务。')
+            print('已暂存到 N150：'+remote+'；未安装、未生成密钥、未重启服务。')
             return 0
         remote_archive=remote+'/'+archive.name
         remote_worker=remote+'/'+worker.name
         cmd=['sudo','--','python3',remote_worker,args.action,'--project',args.project,
              '--archive',remote_archive,'--sha256',digest,'--bind-ip',args.host]
-        print('已传输完成。若终端询问 sudo 密码，仅在终端输入 N100 登录密码；脚本不保存密码。',flush=True)
+        print('已传输完成。若终端询问 sudo 密码，仅在终端输入 N150 登录密码；脚本不保存密码。',flush=True)
         run(ssh_options(args)+['-tt',args.target,shlex.join(cmd)])
         print('完成。大屏地址：http://'+args.host+':8100/station；刷新页面即可使用新大屏。')
         return 0
