@@ -32,9 +32,7 @@ def mirror_to_solotank(sync, mirror, commit, now):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--prepare-only', action='store_true')
-    # 默认不推 solotank：Codex 自动任务的自动审核会拒绝向第二仓库推送（2026-11-21 15:00 实例），
-    # 改由不在 Codex 沙箱内的 com.banyuexuan.project-source-sync LaunchAgent（sync.py 的 mirror_solotank）
-    # 在 5 分钟内把最新 checkpoint 提交与标签非 force 补推到 solotank。人工需要立即推送时加此参数。
+    # 2026-11-21用户明确授权第二仓库main/checkpoint同步；自动任务使用此显式开关。
     parser.add_argument('--with-solotank', action='store_true')
     args = parser.parse_args()
     now = datetime.datetime.now(ZoneInfo('America/Los_Angeles'))
